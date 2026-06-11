@@ -1,0 +1,99 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>YouTube Info Extractor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .container { width: 100%; max-width: 950px; background: #1a1a1a; border-radius: 20px; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    h1 { text-align: center; margin-bottom: 20px; color: #ff0000; }
+    .flex-row { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+    input, button { padding: 12px; border-radius: 8px; border: 1px solid #333; font-size: 16px; outline: none; background: #2a2a2a; color: #fff; }
+    button { background: #ff0000; color: #fff; cursor: pointer; font-weight: 600; }
+    button:disabled { background: #555; }
+    #result { background: #222; border-radius: 12px; padding: 20px; margin-top: 20px; }
+    .info-group { margin-bottom: 15px; }
+    .info-label { color: #aaa; font-size: 14px; display: block; margin-bottom: 4px; }
+    .info-value { font-size: 18px; word-break: break-word; }
+    .thumb-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+    .thumb-grid img { width: 120px; border-radius: 8px; }
+    .format-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .format-table th, .format-table td { padding: 8px; border: 1px solid #444; text-align: left; }
+    .hidden { display: none; }
+    a { color: #ff0000; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 YouTube Info Extractor</h1>
+    <div class="flex-row">
+      <input type="text" id="urlInput" placeholder="Paste any YouTube link (video, channel, playlist)" style="flex:1;">
+      <button id="extractBtn">Extract Info</button>
+    </div>
+    <div id="loading" class="hidden" style="text-align:center;">Loading...</div>
+    <div id="result" class="hidden"></div>
+  </div>
+  <script>
+    const urlInput = document.getElementById('urlInput');
+    const extractBtn = document.getElementById('extractBtn');
+    const loadingDiv = document.getElementById('loading');
+    const resultDiv = document.getElementById('result');
+    extractBtn.addEventListener('click', async () => {
+      const url = urlInput.value.trim();
+      if (!url) return alert('Please enter a URL');
+      loadingDiv.classList.remove('hidden');
+      resultDiv.classList.add('hidden');
+      try {
+        const res = await fetch('/api/extract', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }) });
+        const data = await res.json();
+        if (data.error) { resultDiv.innerHTML = `<p style="color:red;">Error: ${data.error}</p>`; }
+        else { renderInfo(data); }
+      } catch (e) { resultDiv.innerHTML = '<p style="color:red;">Network error</p>'; }
+      loadingDiv.classList.add('hidden');
+      resultDiv.classList.remove('hidden');
+    });
+    function renderInfo(data) {
+      let html = '';
+      if (data.type === 'video') {
+        html += `<h2>🎥 ${escapeHtml(data.title)}</h2>`;
+        html += `<div class="info-group"><span class="info-label">Channel:</span> <span class="info-value">${escapeHtml(data.channel_name)} (@${data.channel_handle})</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Duration:</span> <span class="info-value">${Math.floor(data.duration/60)}m ${data.duration%60}s</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Views:</span> <span class="info-value">${data.view_count?.toLocaleString()}</span> | Likes: ${data.like_count} | Comments: ${data.comment_count}</div>`;
+        html += `<div class="info-group"><span class="info-label">Upload Date:</span> <span class="info-value">${data.upload_date}</span></div>`;
+        if (data.tags.length) html += `<div class="info-group"><span class="info-label">Tags:</span> <span class="info-value">${data.tags.join(', ')}</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Description:</span> <p style="white-space: pre-wrap;">${escapeHtml(data.description)}</p></div>`;
+        html += `<div class="info-group"><span class="info-label">Thumbnail:</span><br><img src="${data.thumbnail}" style="max-width:300px; border-radius:8px;"></div>`;
+        html += `<h3>Available Formats</h3>`;
+        html += `<table class="format-table"><tr><th>Quality</th><th>Extension</th><th>File Size</th><th>Bitrate</th></tr>`;
+        data.formats.forEach(f => { html += `<tr><td>${f.resolution}</td><td>${f.ext}</td><td>${typeof f.filesize==='number'? (f.filesize/1048576).toFixed(1)+' MB' : f.filesize}</td><td>${f.tbr} kbps</td></tr>`; });
+        html += `</table>`;
+      } else if (data.type === 'channel') {
+        html += `<h2>📺 ${escapeHtml(data.channel_name)} (@${data.channel_handle})</h2>`;
+        html += `<div class="info-group"><span class="info-label">Subscribers:</span> <span class="info-value">${data.subscriber_count?.toLocaleString()}</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Total Videos:</span> <span class="info-value">${data.total_videos}</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Channel ID:</span> <span class="info-value">${data.channel_id}</span></div>`;
+        if (data.thumbnails.length) html += `<div class="info-group"><span class="info-label">Avatar:</span><br><img src="${data.thumbnails[0]}" style="width:80px; border-radius:50%;"></div>`;
+        html += `<div class="info-group"><span class="info-label">Description:</span> <p style="white-space: pre-wrap;">${escapeHtml(data.description)}</p></div>`;
+        if (data.recent_videos.length) {
+          html += `<h3>Recent Videos</h3>`;
+          data.recent_videos.forEach(v => { html += `<div>• <a href="${v.url}" target="_blank">${escapeHtml(v.title)}</a></div>`; });
+        }
+      } else if (data.type === 'playlist') {
+        html += `<h2>📀 ${escapeHtml(data.title)}</h2>`;
+        html += `<div class="info-group"><span class="info-label">Channel:</span> <span class="info-value">${escapeHtml(data.channel_name)} (@${data.channel_handle})</span></div>`;
+        html += `<div class="info-group"><span class="info-label">Videos:</span> <span class="info-value">${data.video_count}</span></div>`;
+        html += `<h3>First few videos:</h3>`;
+        data.entries.forEach(e => { html += `<div>• <a href="${e.url}" target="_blank">${escapeHtml(e.title)}</a></div>`; });
+      }
+      resultDiv.innerHTML = html;
+    }
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
