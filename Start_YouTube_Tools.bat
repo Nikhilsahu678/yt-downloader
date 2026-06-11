@@ -6,6 +6,8 @@ setlocal enabledelayedexpansion
 set "DOWNLOADER_PATH=%USERPROFILE%\yt_downloader"
 set "INFO_PATH=%USERPROFILE%\yt_info"
 set "DOWNLOADER_URL=https://github.com/Nikhilsahu678/yt-downloader/archive/refs/heads/main.zip"
+set "INFO_APP_URL=https://raw.githubusercontent.com/Nikhilsahu678/yt-downloader/main/info_app.py"
+set "INFO_HTML_URL=https://raw.githubusercontent.com/Nikhilsahu678/yt-downloader/main/info_index.html"
 
 echo ====================================================
 echo    YouTube Downloader & Info Extractor Portable
@@ -52,7 +54,7 @@ if %errorlevel% neq 0 (
     )
 )
 
-:: --- Install Python libraries (using python -m pip) ---
+:: --- Install Python libraries ---
 echo Installing required Python libraries...
 python -m pip install flask yt-dlp --quiet 2>nul
 if %errorlevel% neq 0 (
@@ -80,24 +82,18 @@ if not exist "%DOWNLOADER_PATH%" (
     echo YouTube Downloader already exists.
 )
 
-:: ================== YouTube Info Extractor ==================
+:: ================== YouTube Info Extractor (download latest from GitHub) ==================
 if not exist "%INFO_PATH%" mkdir "%INFO_PATH%"
+echo Checking for latest Info Extractor update...
+powershell -Command "Invoke-WebRequest -Uri '%INFO_APP_URL%' -OutFile '%INFO_PATH%\app.py'" 2>nul
+if not exist "%INFO_PATH%\templates" mkdir "%INFO_PATH%\templates"
+powershell -Command "Invoke-WebRequest -Uri '%INFO_HTML_URL%' -OutFile '%INFO_PATH%\templates\index.html'" 2>nul
 if not exist "%INFO_PATH%\app.py" (
-    echo Creating YouTube Info Extractor files...
-    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Nikhilsahu678/yt-downloader/main/app.py' -OutFile '%INFO_PATH%\app.py'" 2>nul
-    if not exist "%INFO_PATH%\app.py" (
-        :: Fallback: create app.py from embedded code using PowerShell
-        powershell -Command "Set-Content -Path '%INFO_PATH%\app.py' -Encoding UTF8 -Value (Get-Content '%TEMP%\yt_info_app.py' -Raw)" 2>nul
-    )
-    if not exist "%INFO_PATH%\templates" mkdir "%INFO_PATH%\templates"
-    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Nikhilsahu678/yt-downloader/main/templates/index.html' -OutFile '%INFO_PATH%\templates\index.html'" 2>nul
-    if not exist "%INFO_PATH%\templates\index.html" (
-        powershell -Command "Set-Content -Path '%INFO_PATH%\templates\index.html' -Encoding UTF8 -Value (Get-Content '%TEMP%\yt_info_index.html' -Raw)" 2>nul
-    )
-    echo Info Extractor created.
-) else (
-    echo Info Extractor already exists.
+    echo Failed to download Info Extractor files. Check your internet connection.
+    pause
+    exit /b 1
 )
+echo Info Extractor updated.
 
 :: ================== Start servers ==================
 echo Starting YouTube Downloader on port 5000...
