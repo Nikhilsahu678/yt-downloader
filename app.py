@@ -64,24 +64,53 @@ def download_worker(download_id, url, options):
             ydl_opts['format'] = 'bestaudio/best'
             af = options.get('audio_format', 'mp3')
             if af == 'mp3':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}, {'key': 'EmbedThumbnail'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'},
+                    {'key': 'FFmpegMetadata'},          # ← artist, title, etc.
+                    {'key': 'EmbedThumbnail'}
+                ]
                 ydl_opts['writethumbnail'] = True
             elif af == 'mp3_320':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '320'}, {'key': 'EmbedThumbnail'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '320'},
+                    {'key': 'FFmpegMetadata'},
+                    {'key': 'EmbedThumbnail'}
+                ]
                 ydl_opts['writethumbnail'] = True
             elif af == 'm4a':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'},
+                    {'key': 'FFmpegMetadata'}
+                ]
             elif af == 'wav':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'},
+                    {'key': 'FFmpegMetadata'}
+                ]
             elif af == 'aac':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'aac'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'aac'},
+                    {'key': 'FFmpegMetadata'}
+                ]
             elif af == 'ogg':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'vorbis'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'vorbis'},
+                    {'key': 'FFmpegMetadata'}
+                ]
             elif af == 'flac':
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'flac'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'flac'},
+                    {'key': 'FFmpegMetadata'}
+                ]
             else:
-                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+                ydl_opts['postprocessors'] = [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'},
+                    {'key': 'FFmpegMetadata'},
+                    {'key': 'EmbedThumbnail'}
+                ]
+                ydl_opts['writethumbnail'] = True
         else:
+            # ... video format code unchanged ...
             # ---------- VIDEO ----------
             fmt = options.get('format', 'bestvideo+bestaudio/best')
             ydl_opts['format'] = fmt
