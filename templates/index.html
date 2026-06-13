@@ -14,6 +14,9 @@
     @keyframes aurora { 0%{ transform:scale(1) rotate(0deg); opacity:0.8; } 100%{ transform:scale(1.2) rotate(5deg); opacity:1; } }
     .container { width:100%; max-width:900px; background:var(--card); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); border-radius:24px; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,0.5); border:1px solid var(--border); }
     .header { background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; padding:24px; font-size:28px; font-weight:800; text-align:center; letter-spacing:-0.5px; text-shadow:0 2px 10px rgba(0,0,0,0.3); }
+    .tabs { display:flex; }
+    .tab { flex:1; text-align:center; padding:14px 8px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; transition:0.2s; }
+    .tab.active { border-bottom-color:var(--accent); color:var(--accent); }
     .content { padding:20px; }
     .flex-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
     input,select,button,textarea { background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:12px 16px; border-radius:10px; font-size:15px; outline:none; transition:0.2s; }
@@ -33,98 +36,143 @@
     .video-player iframe { width:100%; height:100%; border:none; }
     .theme-btn { position:fixed; bottom:20px; right:20px; background:var(--accent); width:45px; height:45px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1000; font-size:20px; }
     .spotify-section { background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:16px; padding:20px; margin-bottom:15px; }
+    @media (max-width:768px) {
+      .tabs { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:2px solid var(--border); z-index:999; }
+      .tab { font-size:13px; padding:12px 4px; border-bottom:none; border-top:2px solid transparent; }
+      .tab.active { border-top-color:var(--accent); }
+      body { padding-bottom:80px; }
+    }
   </style>
 </head>
 <body>
 <div class="container">
   <div class="header">⬇️ YT Downloader Pro</div>
+
+  <!-- Spotify Section ALWAYS VISIBLE -->
+  <div class="spotify-section" style="margin:20px 20px 0 20px;">
+    <h3 style="margin-bottom:10px;">🎧 Download via Spotify Link</h3>
+    <div class="flex-row">
+      <input type="text" id="spotifyUrl" placeholder="Paste Spotify track/playlist link" style="flex:1;">
+      <button id="spotifyDownloadBtn">🎵 Get from YouTube</button>
+    </div>
+    <p style="color:#aaa; font-size:12px; margin-top:8px;">Extracts song info from Spotify and downloads the best matching audio from YouTube.</p>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="video">🎥 Video</div>
+    <div class="tab" data-tab="audio">🎵 Music</div>
+    <div class="tab" data-tab="playlist">📀 Playlist</div>
+    <div class="tab" data-tab="converter">🔄 Converter</div>
+  </div>
+
   <div class="content">
-    <!-- Spotify Section ALWAYS VISIBLE -->
-    <div class="spotify-section">
-      <h3 style="margin-bottom:10px;">🎧 Download via Spotify Link</h3>
+    <!-- Download Tabs (Video/Music/Playlist) -->
+    <div id="downloadTab">
       <div class="flex-row">
-        <input type="text" id="spotifyUrl" placeholder="Paste Spotify track/playlist link" style="flex:1;">
-        <button id="spotifyDownloadBtn">🎵 Get from YouTube</button>
+        <input type="text" id="urlInput" placeholder="Paste YouTube link">
+        <button id="clipboardBtn">📋</button>
+        <button id="fetchBtn">Fetch</button>
       </div>
-      <p style="color:#aaa; font-size:12px; margin-top:8px;">Extracts song info from Spotify and downloads the best matching audio from YouTube.</p>
+      <div id="nonYoutubeWarn" class="hidden" style="color:orange;">⚠️ Non‑YouTube URL</div>
+      <div class="flex-row">
+        <input type="text" id="customFilename" placeholder="Custom filename (optional)" style="flex:1;">
+        <span id="batchModeBtn" style="background:var(--input-bg); padding:8px 16px; border-radius:20px; cursor:pointer;">📦 Batch</span>
+      </div>
+      <textarea id="batchUrls" class="hidden" placeholder="Multiple links (one per line)" style="width:100%; height:80px; margin-bottom:10px;"></textarea>
+      <div class="flex-row">
+        <input type="datetime-local" id="scheduleTime" style="flex:1;">
+        <button id="scheduleBtn">⏰ Schedule</button>
+      </div>
+
+      <!-- Preview card -->
+      <div id="preview" class="hidden card">
+        <div id="videoPreview" class="hidden">
+          <div id="videoPlayerContainer" class="video-player hidden"></div>
+          <img id="videoThumb" class="thumb-img">
+          <h3 id="videoTitle"></h3>
+          <div class="flex-row">
+            <select id="formatSelect">
+              <option value="mp4">MP4</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="mpeg">MPEG</option><option value="mpg">MPG</option><option value="mov">MOV</option><option value="avi">AVI</option>
+            </select>
+            <select id="qualitySelect">
+              <option value="best">Best</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="360p">360p</option>
+            </select>
+            <span id="fileSizeEstimate"></span>
+          </div>
+          <div class="flex-row">
+            <input type="text" id="trimStart" placeholder="Start (hh:mm:ss)">
+            <input type="text" id="trimEnd" placeholder="End (hh:mm:ss)">
+          </div>
+          <div class="flex-row">
+            <label><input type="checkbox" id="subtitles"> Subs</label>
+            <label>Speed(KB/s):<input type="number" id="speedLimit" value="0" min="0" style="width:80px;"></label>
+            <select id="convertTo">
+              <option value="">No convert</option><option value="mp4">MP4</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
+            </select>
+          </div>
+          <button id="downloadVideoBtn">Download Video</button>
+        </div>
+
+        <div id="musicPreview" class="hidden poster-card">
+          <div class="blur-bg" id="musicBlurBg"></div>
+          <div class="inner">
+            <img id="musicThumb">
+            <h3 id="musicTitle"></h3>
+            <p id="musicDuration"></p>
+            <select id="audioFormatSelect">
+              <option value="mp3">MP3 192kbps</option><option value="mp3_320">MP3 320kbps</option><option value="m4a">M4A</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
+            </select>
+            <button id="downloadMusicBtn">Download MP3</button>
+          </div>
+        </div>
+
+        <div id="playlistPreview" class="hidden">
+          <h3 id="plTitle"></h3><p id="plCount"></p>
+          <div class="flex-row"><label><input type="checkbox" id="selectAllCheckbox"> Select All</label><span id="selectionInfo">0 selected</span></div>
+          <div id="plItems" style="max-height:200px; overflow-y:auto; margin-bottom:10px;"></div>
+          <div class="flex-row"><button id="dlPlaylistVideo">Download Videos</button><button id="dlPlaylistAudio">Download Audio</button></div>
+        </div>
+      </div>
+
+      <div id="queueArea" class="hidden card"></div>
+      <div id="progressArea" class="hidden card">
+        <canvas id="speedGraph" class="hidden" style="width:100%; height:60px; background:#111; border-radius:8px;"></canvas>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div id="statusText" style="margin:8px 0;"></div>
+        <a id="fileLink" class="hidden" href="#" style="display:block; color:var(--accent);">⬇️ Download ready</a>
+        <div id="subtitleLinks" class="hidden"></div>
+        <button id="playBtn" class="hidden">▶ Play</button>
+        <button id="copyLinkBtn" class="hidden">📋 Copy link</button>
+      </div>
     </div>
 
-    <!-- Main download area -->
-    <div class="flex-row">
-      <input type="text" id="urlInput" placeholder="Paste YouTube link here...">
-      <button id="clipboardBtn">📋</button>
-      <button id="fetchBtn">Fetch</button>
-    </div>
-    <div id="nonYoutubeWarn" class="hidden" style="color:orange;">⚠️ Non‑YouTube URL</div>
-    <div class="flex-row">
-      <input type="text" id="customFilename" placeholder="Custom filename (optional)" style="flex:1;">
-      <span id="batchModeBtn" style="background:var(--input-bg); padding:8px 16px; border-radius:20px; cursor:pointer;">📦 Batch</span>
-    </div>
-    <textarea id="batchUrls" class="hidden" placeholder="Multiple links (one per line)" style="width:100%; height:80px; margin-bottom:10px;"></textarea>
-    <div class="flex-row">
-      <input type="datetime-local" id="scheduleTime" style="flex:1;">
-      <button id="scheduleBtn">⏰ Schedule</button>
-    </div>
-
-    <!-- Preview card -->
-    <div id="preview" class="hidden card">
-      <div id="videoPreview" class="hidden">
-        <div id="videoPlayerContainer" class="video-player hidden"></div>
-        <img id="videoThumb" class="thumb-img">
-        <h3 id="videoTitle"></h3>
+    <!-- Converter Tab -->
+    <div id="converterTab" class="hidden">
+      <h3>Select a video or audio file from your device</h3>
+      <div id="localDropZone" class="file-drop-zone" style="border:2px dashed var(--border); border-radius:12px; padding:20px; text-align:center; cursor:pointer; margin-bottom:15px;">
+        <input type="file" id="localFileInput" style="display:none;" accept="video/*,audio/*">
+        <button id="selectFileBtn">📂 Choose File</button>
+        <p style="margin-top:10px;">or drag & drop here</p>
+      </div>
+      <div id="localFileInfo" class="hidden card">
+        <h4>File Info</h4>
+        <p id="localFileName"></p>
+        <p id="localFileFormat"></p>
+        <p id="localFileDuration"></p>
         <div class="flex-row">
-          <select id="formatSelect">
-            <option value="mp4">MP4</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="mpeg">MPEG</option><option value="mpg">MPG</option><option value="mov">MOV</option><option value="avi">AVI</option>
+          <label>Convert to:</label>
+          <select id="localTargetFormat">
+            <option value="mp4">MP4</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="webm">WebM</option><option value="avi">AVI</option>
+            <option value="mp3">MP3</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
           </select>
-          <select id="qualitySelect">
-            <option value="best">Best</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="360p">360p</option>
-          </select>
-          <span id="fileSizeEstimate"></span>
+          <button id="convertLocalBtn">Convert</button>
         </div>
-        <div class="flex-row">
-          <input type="text" id="trimStart" placeholder="Start (hh:mm:ss)">
-          <input type="text" id="trimEnd" placeholder="End (hh:mm:ss)">
+        <div id="localProgressArea" class="hidden">
+          <div class="progress-bar"><div class="progress-fill" id="localProgressFill"></div></div>
+          <p id="localStatusText"></p>
         </div>
-        <div class="flex-row">
-          <label><input type="checkbox" id="subtitles"> Subs</label>
-          <label>Speed(KB/s):<input type="number" id="speedLimit" value="0" min="0" style="width:80px;"></label>
-          <select id="convertTo">
-            <option value="">No convert</option><option value="mp4">MP4</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
-          </select>
-        </div>
-        <button id="downloadVideoBtn">Download Video</button>
+        <a id="localDownloadLink" class="hidden" href="#" style="display:block; color:var(--accent);">⬇️ Download Converted File</a>
       </div>
-
-      <div id="musicPreview" class="hidden poster-card">
-        <div class="blur-bg" id="musicBlurBg"></div>
-        <div class="inner">
-          <img id="musicThumb">
-          <h3 id="musicTitle"></h3>
-          <p id="musicDuration"></p>
-          <select id="audioFormatSelect">
-            <option value="mp3">MP3 192kbps</option><option value="mp3_320">MP3 320kbps</option><option value="m4a">M4A</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
-          </select>
-          <button id="downloadMusicBtn">Download MP3</button>
-        </div>
-      </div>
-
-      <div id="playlistPreview" class="hidden">
-        <h3 id="plTitle"></h3><p id="plCount"></p>
-        <div class="flex-row"><label><input type="checkbox" id="selectAllCheckbox"> Select All</label><span id="selectionInfo">0 selected</span></div>
-        <div id="plItems" style="max-height:200px; overflow-y:auto; margin-bottom:10px;"></div>
-        <div class="flex-row"><button id="dlPlaylistVideo">Download Videos</button><button id="dlPlaylistAudio">Download Audio</button></div>
-      </div>
-    </div>
-
-    <div id="queueArea" class="hidden card"></div>
-    <div id="progressArea" class="hidden card">
-      <canvas id="speedGraph" class="hidden" style="width:100%; height:60px; background:#111; border-radius:8px;"></canvas>
-      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-      <div id="statusText" style="margin:8px 0;"></div>
-      <a id="fileLink" class="hidden" href="#" style="display:block; color:var(--accent);">⬇️ Download ready</a>
-      <div id="subtitleLinks" class="hidden"></div>
-      <button id="playBtn" class="hidden">▶ Play</button>
-      <button id="copyLinkBtn" class="hidden">📋 Copy link</button>
     </div>
 
     <!-- History -->
@@ -152,6 +200,26 @@ renderHistory();
 const storedTheme = localStorage.getItem('theme')||'dark';
 if(storedTheme==='light') document.body.classList.add('light-mode');
 function toggleTheme() { document.body.classList.toggle('light-mode'); localStorage.setItem('theme', document.body.classList.contains('light-mode')?'light':'dark'); }
+
+// tabs
+const tabs = document.querySelectorAll('.tab');
+const downloadTab = document.getElementById('downloadTab');
+const converterTab = document.getElementById('converterTab');
+let currentTab = 'video';
+tabs.forEach(t => t.addEventListener('click', function(){
+  tabs.forEach(tab=>tab.classList.remove('active')); this.classList.add('active');
+  currentTab = this.dataset.tab;
+  if(currentTab==='converter') {
+    downloadTab.classList.add('hidden');
+    converterTab.classList.remove('hidden');
+    document.getElementById('dropZone').style.display='none';
+  } else {
+    converterTab.classList.add('hidden');
+    downloadTab.classList.remove('hidden');
+    document.getElementById('dropZone').style.display='block';
+    resetPreviews();
+  }
+}));
 
 // ---------- DOM ----------
 const urlInput = document.getElementById('urlInput');
@@ -184,7 +252,13 @@ urlInput.addEventListener('input', ()=>{
     try {
       const res = await fetch('/api/info', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
       const data = await res.json();
-      if(data.type==='playlist') { resetPreviews(); fetchBtn.click(); }
+      if(data.type==='playlist') {
+        tabs.forEach(t=>t.classList.remove('active'));
+        document.querySelector('.tab[data-tab="playlist"]').classList.add('active');
+        currentTab='playlist';
+        resetPreviews();
+        fetchBtn.click();
+      }
     }catch(e){}
   }, 1000);
 });
@@ -217,14 +291,22 @@ fetchBtn.addEventListener('click', async ()=>{
       document.getElementById('plCount').textContent = `${data.video_count} videos`;
       playlistPreview.classList.remove('hidden');
     } else {
-      videoPreview.classList.remove('hidden');
-      document.getElementById('videoTitle').textContent = data.title;
-      videoThumb.src = data.thumbnail;
-      videoThumb.classList.remove('hidden');
-      videoPlayerContainer.classList.add('hidden');
-      currentVideoId = data.video_id;
-      videoThumb.onclick = ()=>{ if(currentVideoId) { videoPlayerContainer.innerHTML = `<iframe src="https://www.youtube.com/embed/${currentVideoId}" allowfullscreen></iframe>`; videoPlayerContainer.classList.remove('hidden'); videoThumb.classList.add('hidden'); } };
-      updateFileSizeEstimate(data.formats);
+      if(currentTab==='audio') {
+        musicPreview.classList.remove('hidden');
+        document.getElementById('musicTitle').textContent = data.title;
+        document.getElementById('musicThumb').src = data.thumbnail;
+        document.getElementById('musicDuration').textContent = data.duration ? `${Math.floor(data.duration/60)}:${String(data.duration%60).padStart(2,'0')}` : '';
+        document.getElementById('musicBlurBg').style.backgroundImage = `url(${data.thumbnail})`;
+      } else {
+        videoPreview.classList.remove('hidden');
+        document.getElementById('videoTitle').textContent = data.title;
+        videoThumb.src = data.thumbnail;
+        videoThumb.classList.remove('hidden');
+        videoPlayerContainer.classList.add('hidden');
+        currentVideoId = data.video_id;
+        videoThumb.onclick = ()=>{ if(currentVideoId) { videoPlayerContainer.innerHTML = `<iframe src="https://www.youtube.com/embed/${currentVideoId}" allowfullscreen></iframe>`; videoPlayerContainer.classList.remove('hidden'); videoThumb.classList.add('hidden'); } };
+        updateFileSizeEstimate(data.formats);
+      }
     }
   } catch(e) { alert('Error: '+e.message); }
 });
@@ -411,6 +493,75 @@ document.addEventListener('keydown', e=>{
   }
 });
 
+// ---------- CONVERTER LOGIC ----------
+const localFileInput = document.getElementById('localFileInput');
+const selectFileBtn = document.getElementById('selectFileBtn');
+const localDropZone = document.getElementById('localDropZone');
+const localFileInfo = document.getElementById('localFileInfo');
+const localFileName = document.getElementById('localFileName');
+const localFileFormat = document.getElementById('localFileFormat');
+const localFileDuration = document.getElementById('localFileDuration');
+const localTargetFormat = document.getElementById('localTargetFormat');
+const convertLocalBtn = document.getElementById('convertLocalBtn');
+const localProgressArea = document.getElementById('localProgressArea');
+const localProgressFill = document.getElementById('localProgressFill');
+const localStatusText = document.getElementById('localStatusText');
+const localDownloadLink = document.getElementById('localDownloadLink');
+
+selectFileBtn.addEventListener('click', ()=> localFileInput.click());
+localFileInput.addEventListener('change', handleLocalFile);
+localDropZone.addEventListener('dragover', e=>{ e.preventDefault(); localDropZone.classList.add('drag-over'); });
+localDropZone.addEventListener('dragleave', ()=> localDropZone.classList.remove('drag-over'));
+localDropZone.addEventListener('drop', e=>{
+  e.preventDefault();
+  localDropZone.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if(files.length) handleFileObject(files[0]);
+});
+
+function handleLocalFile(e) {
+  const file = e.target.files[0];
+  if(file) handleFileObject(file);
+}
+
+async function handleFileObject(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch('/api/local/info', { method:'POST', body: formData });
+    const data = await res.json();
+    if(data.error) { alert(data.error); return; }
+    localFileInfo.classList.remove('hidden');
+    localFileName.textContent = 'File: ' + data.filename;
+    localFileFormat.textContent = 'Format: ' + data.format + (data.video_codec ? ' Video:'+data.video_codec : '') + (data.audio_codec ? ' Audio:'+data.audio_codec : '');
+    localFileDuration.textContent = 'Duration: ' + (data.duration ? data.duration.toFixed(1)+'s' : 'unknown');
+    localFileInfo.dataset.convId = data.conv_id;
+  } catch(e) { alert('Error reading file'); }
+}
+
+convertLocalBtn.addEventListener('click', async ()=>{
+  const convId = localFileInfo.dataset.convId;
+  if(!convId) return;
+  const target = localTargetFormat.value;
+  localProgressArea.classList.remove('hidden');
+  convertLocalBtn.disabled = true;
+  try {
+    const res = await fetch('/api/local/convert', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ conv_id: convId, target_format: target })
+    });
+    const data = await res.json();
+    if(data.error) { alert(data.error); convertLocalBtn.disabled = false; return; }
+    localProgressFill.style.width = '100%';
+    localStatusText.textContent = 'Conversion done!';
+    localDownloadLink.href = `/file/local/${data.download_id}/${data.filename}`;
+    localDownloadLink.textContent = '⬇️ ' + data.filename;
+    localDownloadLink.classList.remove('hidden');
+    convertLocalBtn.disabled = false;
+  } catch(e) { alert('Conversion failed'); convertLocalBtn.disabled = false; }
+});
+
 // ---------- SPOTIFY DOWNLOAD ----------
 document.getElementById('spotifyDownloadBtn').addEventListener('click', async () => {
   const url = document.getElementById('spotifyUrl').value.trim();
@@ -434,4 +585,4 @@ document.getElementById('spotifyDownloadBtn').addEventListener('click', async ()
 });
 </script>
 </body>
-</html>s
+</html>
