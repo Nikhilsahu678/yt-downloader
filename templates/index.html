@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>YT Downloader Pro</title>
-  <link rel="manifest" href="/static/manifest.json">
   <style>
     :root { --bg:#0a0a0a; --card:#1a1a1a; --text:#fff; --accent:#ff0055; --accent2:#00c9ff; --input-bg:#2a2a2a; --border:#333; --nav-h:60px; }
     .light-mode { --bg:#f5f5f5; --card:#fff; --text:#111; --accent:#d32f2f; --accent2:#0d6efd; --input-bg:#fff; --border:#ccc; }
@@ -33,17 +32,14 @@
     .video-player { width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; margin-bottom:10px; }
     .video-player iframe { width:100%; height:100%; border:none; }
     .theme-btn { position:fixed; bottom:20px; right:20px; background:var(--accent); width:45px; height:45px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1000; font-size:20px; }
-    @media (max-width:768px) {
-      body { padding-bottom:80px; }
-    }
-    .spotify-section { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:16px; padding:20px; margin-bottom:15px; }
+    .spotify-section { background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:16px; padding:20px; margin-bottom:15px; }
   </style>
 </head>
 <body>
 <div class="container">
   <div class="header">⬇️ YT Downloader Pro</div>
   <div class="content">
-    <!-- Spotify Section (always visible) -->
+    <!-- Spotify Section ALWAYS VISIBLE -->
     <div class="spotify-section">
       <h3 style="margin-bottom:10px;">🎧 Download via Spotify Link</h3>
       <div class="flex-row">
@@ -188,15 +184,11 @@ urlInput.addEventListener('input', ()=>{
     try {
       const res = await fetch('/api/info', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
       const data = await res.json();
-      if(data.type==='playlist') {
-        resetPreviews();
-        fetchBtn.click();
-      }
+      if(data.type==='playlist') { resetPreviews(); fetchBtn.click(); }
     }catch(e){}
   }, 1000);
 });
 
-// drag & drop (already built-in)
 // clipboard
 document.getElementById('clipboardBtn').addEventListener('click', async ()=>{
   const text = await navigator.clipboard.readText().catch(()=>null);
@@ -237,11 +229,187 @@ fetchBtn.addEventListener('click', async ()=>{
   } catch(e) { alert('Error: '+e.message); }
 });
 
-function updateFileSizeEstimate(formats) { /* same as previous */ }
+function updateFileSizeEstimate(formats) {
+  const qualitySelect = document.getElementById('qualitySelect');
+  const estimateSpan = document.getElementById('fileSizeEstimate');
+  function recalc() {
+    const chosen = qualitySelect.value;
+    const fmt = formats.find(f=>f.resolution===chosen || (chosen==='best' && f.resolution==='2160p'));
+    estimateSpan.textContent = fmt && fmt.filesize ? `~${(fmt.filesize/1048576).toFixed(1)} MB` : '';
+  }
+  qualitySelect.addEventListener('change', recalc);
+  recalc();
+}
 
-function buildPlaylistUI(entries) { /* same as previous */ }
-// (Include all other functions: buildPlaylistUI, updateSelectionInfo, getSelectedIndexes, resetPreviews, startDownload, startPolling, drawSpeedGraph, etc.)
-// I'll provide the critical ones only due to length – assume they are exactly as the last working version.
+function buildPlaylistUI(entries) {
+  const container = document.getElementById('plItems');
+  container.innerHTML = entries.map((e,i)=>`
+    <div class="flex-row" style="margin-bottom:6px; align-items:center;">
+      <input type="checkbox" class="video-checkbox" data-index="${i}" onchange="updateSelectionInfo()">
+      <img src="${e.thumbnail||''}" style="width:60px;height:45px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'">
+      <span style="flex:1;">${e.title}</span>
+    </div>`).join('');
+  updateSelectionInfo();
+}
+document.getElementById('selectAllCheckbox').addEventListener('change', function(){
+  document.querySelectorAll('.video-checkbox').forEach(cb=>cb.checked=this.checked);
+  updateSelectionInfo();
+});
+function updateSelectionInfo() {
+  const count = document.querySelectorAll('.video-checkbox:checked').length;
+  document.getElementById('selectionInfo').textContent = `${count} selected`;
+}
+function getSelectedIndexes() {
+  return Array.from(document.querySelectorAll('.video-checkbox:checked')).map(cb=>parseInt(cb.dataset.index));
+}
+
+function resetPreviews() {
+  previewDiv.classList.add('hidden');
+  videoPreview.classList.add('hidden');
+  musicPreview.classList.add('hidden');
+  playlistPreview.classList.add('hidden');
+  progressArea.classList.add('hidden');
+  document.getElementById('queueArea').classList.add('hidden');
+  nonYoutubeWarn.classList.add('hidden');
+  videoPlayerContainer.classList.add('hidden');
+  videoThumb.classList.remove('hidden');
+}
+
+// download triggers
+document.getElementById('downloadVideoBtn').addEventListener('click', ()=>startDownload('video'));
+document.getElementById('downloadMusicBtn').addEventListener('click', ()=>startDownload('audio'));
+document.getElementById('dlPlaylistVideo').addEventListener('click', ()=>startDownload('playlist_video'));
+document.getElementById('dlPlaylistAudio').addEventListener('click', ()=>startDownload('playlist_audio'));
+
+async function startDownload(type) {
+  const url = urlInput.value.trim();
+  if(!url) return;
+  let quality = 'best';
+  if(type==='video'||type==='playlist_video') quality = document.getElementById('qualitySelect').value;
+  const trimStart = document.getElementById('trimStart').value || null;
+  const trimEnd = document.getElementById('trimEnd').value || null;
+  const playlist = type.startsWith('playlist');
+  const formatExt = document.getElementById('formatSelect').value;
+  const audioFormat = document.getElementById('audioFormatSelect')?.value || 'mp3';
+  const speedLimit = parseInt(document.getElementById('speedLimit').value) || null;
+  const subtitles = document.getElementById('subtitles')?.checked || false;
+  const convertTo = document.getElementById('convertTo').value || null;
+  const customFilename = document.getElementById('customFilename').value || null;
+  let selectedIndexes = null;
+  if(playlist) {
+    selectedIndexes = getSelectedIndexes();
+    if(!selectedIndexes.length) return alert('Select at least one video.');
+  }
+  const batchArea = document.getElementById('batchUrls');
+  let batchUrls = null;
+  if(!batchArea.classList.contains('hidden')) {
+    batchUrls = batchArea.value.split('\n').filter(u=>u.trim());
+    if(!batchUrls.length) return alert('Enter batch URLs.');
+  }
+  const scheduledTime = document.getElementById('scheduleTime').value || null;
+
+  const payload = {
+    url, type, quality,
+    trim_start:trimStart, trim_end:trimEnd,
+    playlist, format_ext:formatExt, audio_format:audioFormat,
+    selected_indexes:selectedIndexes,
+    speed_limit:speedLimit, subtitles, convert_to:convertTo,
+    batch_urls:batchUrls, custom_filename:customFilename,
+    scheduled_time:scheduledTime
+  };
+
+  progressArea.classList.remove('hidden');
+  progressFill.style.width='0%';
+  statusText.textContent = scheduledTime ? 'Scheduled...' : 'Starting...';
+  fileLink.classList.add('hidden');
+  copyLinkBtn.classList.add('hidden');
+  playBtn.classList.add('hidden');
+  document.getElementById('subtitleLinks').classList.add('hidden');
+  document.getElementById('queueArea').classList.add('hidden');
+  speedCanvas.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/download', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const data = await res.json();
+    if(data.scheduled) { statusText.textContent = `Scheduled for ${new Date(scheduledTime).toLocaleString()}`; return; }
+    currentDownloadId = data.download_id;
+    startPolling(currentDownloadId);
+  } catch(e) { statusText.textContent='Error starting download.'; }
+}
+
+function startPolling(did) {
+  if(pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async ()=>{
+    const res = await fetch(`/api/progress/${did}`);
+    if(res.status===404) { statusText.textContent='Status not found'; clearInterval(pollInterval); return; }
+    const d = await res.json();
+    if(d.status==='done') {
+      progressFill.style.width='100%';
+      statusText.textContent='Download complete!';
+      fileLink.href=`/file/${did}/${d.filename}`;
+      fileLink.textContent=`⬇️ ${d.filename}`;
+      fileLink.classList.remove('hidden');
+      copyLinkBtn.classList.remove('hidden');
+      playBtn.classList.remove('hidden');
+      playBtn.onclick = ()=>window.open(fileLink.href);
+      if(d.subtitles && d.subtitles.length) {
+        const subDiv = document.getElementById('subtitleLinks');
+        subDiv.innerHTML = '<br>Subtitles: ' + d.subtitles.map(s=>`<a href="/file/${did}/${s}" style="color:var(--accent);">${s}</a>`).join(', ');
+        subDiv.classList.remove('hidden');
+      }
+      saveHistory({ title:d.title||'Unknown', url:urlInput.value, type:'download' });
+      clearInterval(pollInterval);
+      try { const a=new AudioContext(); const o=a.createOscillator(); o.frequency.value=800; o.connect(a.destination); o.start(); setTimeout(()=>o.stop(),200); } catch(e){}
+    } else if(d.status==='error') {
+      statusText.textContent='Error: '+d.message; clearInterval(pollInterval);
+    } else {
+      progressFill.style.width = d.percent+'%';
+      statusText.textContent = `${d.percent||0}% · ${d.speed||0} MB/s · ETA ${d.eta||'...'}`;
+      if(d.queue_items) {
+        const qa = document.getElementById('queueArea');
+        qa.classList.remove('hidden');
+        qa.innerHTML = d.queue_items.map((it,i)=>`<div class="flex-row" style="align-items:center;gap:8px;"><span>${it.url.substring(0,40)}</span><div style="flex:1;height:4px;background:#333;"><div style="width:${it.percent||0}%;height:100%;background:var(--accent);"></div></div></div>`).join('');
+      }
+      if(d.speed_history && d.speed_history.length>1) {
+        speedCanvas.classList.remove('hidden');
+        drawSpeedGraph(d.speed_history);
+      }
+    }
+  }, 1000);
+}
+
+function drawSpeedGraph(speeds) {
+  const w = speedCanvas.width = speedCanvas.clientWidth;
+  const h = speedCanvas.height = speedCanvas.clientHeight;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='var(--accent)'; ctx.lineWidth=2; ctx.beginPath();
+  const max = Math.max(...speeds, 0.1);
+  speeds.forEach((v,i)=>{
+    const x = (i/(speeds.length-1))*w;
+    const y = h - (v/max)*(h-4)-2;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+
+document.getElementById('copyLinkBtn').addEventListener('click', ()=> navigator.clipboard.writeText(fileLink.href).then(()=>alert('Link copied!')));
+document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  const rows = [['Title','Date','Type','URL']];
+  history.forEach(h=>rows.push([h.title,h.date,h.type,h.url]));
+  const csv = rows.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'download_history.csv';
+  a.click();
+});
+document.addEventListener('keydown', e=>{
+  if(e.ctrlKey && e.key==='Enter') {
+    e.preventDefault();
+    if(document.getElementById('videoPreview').classList.contains('hidden')===false) document.getElementById('downloadVideoBtn').click();
+    else if(document.getElementById('musicPreview').classList.contains('hidden')===false) document.getElementById('downloadMusicBtn').click();
+  }
+});
 
 // ---------- SPOTIFY DOWNLOAD ----------
 document.getElementById('spotifyDownloadBtn').addEventListener('click', async () => {
@@ -266,4 +434,4 @@ document.getElementById('spotifyDownloadBtn').addEventListener('click', async ()
 });
 </script>
 </body>
-</html>
+</html>s
