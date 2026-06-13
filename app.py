@@ -1,4 +1,4 @@
-import os, json, uuid, threading, subprocess, tempfile, re
+import os, json, uuid, threading, subprocess
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import yt_dlp
@@ -332,24 +332,14 @@ def spotify_download():
     data = request.json
     url = data.get('url', '').strip()
     audio_format = data.get('audio_format', 'mp3')
-
     if not url or 'spotify.com' not in url:
         return jsonify({'error': 'Please provide a valid Spotify URL'}), 400
-
-    # Step 1 – extract metadata from Spotify
-    meta_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-        'skip_download': True,
-        'ignoreerrors': True,
-    }
+    meta_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False, 'skip_download': True, 'ignoreerrors': True}
     try:
         with yt_dlp.YoutubeDL(meta_opts) as ydl_meta:
             meta = ydl_meta.extract_info(url, download=False)
         if meta is None:
             return jsonify({'error': 'Could not extract Spotify metadata'}), 400
-
         if 'entries' in meta:
             entries = [e for e in meta['entries'] if e]
             if not entries:
@@ -357,26 +347,15 @@ def spotify_download():
             track = entries[0]
         else:
             track = meta
-
         title = track.get('title', '').strip()
         artist = track.get('uploader', track.get('artist', track.get('channel', ''))).strip()
         if not title or not artist:
             return jsonify({'error': 'Could not parse artist/title'}), 400
-
         search_query = f"{artist} - {title} official audio"
     except Exception as e:
         return jsonify({'error': f'Metadata extraction failed: {str(e)}'}), 500
 
-    # Step 2 – find the best YouTube match
-    search_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch',
-        'skip_download': True,
-        'extract_flat': False,
-        'noplaylist': True,
-    }
+    search_opts = {'quiet': True, 'no_warnings': True, 'format': 'bestaudio/best', 'default_search': 'ytsearch', 'skip_download': True, 'extract_flat': False, 'noplaylist': True}
     try:
         with yt_dlp.YoutubeDL(search_opts) as ydl_search:
             search_info = ydl_search.extract_info(f"ytsearch1:{search_query}", download=False)
@@ -386,32 +365,11 @@ def spotify_download():
     except Exception as e:
         return jsonify({'error': f'YouTube search failed: {str(e)}'}), 500
 
-    # Step 3 – start normal audio download
     download_id = str(uuid.uuid4())
     downloads[download_id] = {'status': 'starting', 'percent': 0, 'speed': 0, 'eta': 0}
-
-    options = {
-        'audio_only': True,
-        'audio_format': audio_format,
-        'playlist': False,
-        'selected_indexes': None,
-        'speed_limit': None,
-        'subtitles': False,
-        'convert_to': None,
-        'batch_urls': None,
-        'custom_filename': None,
-        'scheduled_time': None,
-    }
-
-    thread = threading.Thread(target=download_worker, args=(download_id, video_url, options))
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({
-        'download_id': download_id,
-        'youtube_url': video_url,
-        'spotify_title': f"{artist} - {title}"
-    })
+    options = {'audio_only': True, 'audio_format': audio_format, 'playlist': False, 'selected_indexes': None, 'speed_limit': None, 'subtitles': False, 'convert_to': None, 'batch_urls': None, 'custom_filename': None, 'scheduled_time': None}
+    thread = threading.Thread(target=download_worker, args=(download_id, video_url, options)); thread.daemon = True; thread.start()
+    return jsonify({'download_id': download_id, 'youtube_url': video_url, 'spotify_title': f"{artist} - {title}"})
 
 if __name__ == '__main__':
     os.makedirs('downloads', exist_ok=True)
