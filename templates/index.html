@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>YT Downloader Pro</title>
+  <link rel="manifest" href="/static/manifest.json">
   <style>
     :root { --bg:#0a0a0a; --card:#1a1a1a; --text:#fff; --accent:#ff0055; --accent2:#00c9ff; --input-bg:#2a2a2a; --border:#333; --nav-h:60px; }
     .light-mode { --bg:#f5f5f5; --card:#fff; --text:#111; --accent:#d32f2f; --accent2:#0d6efd; --input-bg:#fff; --border:#ccc; }
@@ -35,7 +36,9 @@
     .video-player { width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; margin-bottom:10px; }
     .video-player iframe { width:100%; height:100%; border:none; }
     .theme-btn { position:fixed; bottom:20px; right:20px; background:var(--accent); width:45px; height:45px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1000; font-size:20px; }
-    .spotify-section { background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:16px; padding:20px; margin-bottom:15px; }
+    .smart-section { background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:16px; padding:20px; margin:0 20px 15px; }
+    .file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:20px; text-align:center; cursor:pointer; margin-bottom:15px; }
+    .file-drop-zone.drag-over { border-color:var(--accent); background:rgba(255,0,0,0.1); }
     @media (max-width:768px) {
       .tabs { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:2px solid var(--border); z-index:999; }
       .tab { font-size:13px; padding:12px 4px; border-bottom:none; border-top:2px solid transparent; }
@@ -48,14 +51,37 @@
 <div class="container">
   <div class="header">⬇️ YT Downloader Pro</div>
 
-  <!-- Spotify Section ALWAYS VISIBLE -->
-  <div class="spotify-section" style="margin:20px 20px 0 20px;">
-    <h3 style="margin-bottom:10px;">🎧 Download via Spotify Link</h3>
+  <!-- Smart Download Section -->
+  <div class="smart-section">
+    <h3 style="margin-bottom:10px;">🔍 Smart Download (Spotify / YT Music)</h3>
     <div class="flex-row">
-      <input type="text" id="spotifyUrl" placeholder="Paste Spotify track/playlist link" style="flex:1;">
-      <button id="spotifyDownloadBtn">🎵 Get from YouTube</button>
+      <input type="text" id="smartUrl" placeholder="Paste Spotify or YouTube Music link" style="flex:1;">
+      <button id="smartFetchBtn">Fetch Info</button>
     </div>
-    <p style="color:#aaa; font-size:12px; margin-top:8px;">Extracts song info from Spotify and downloads the best matching audio from YouTube.</p>
+    <div id="smartInfo" class="hidden card" style="margin-top:15px;">
+      <div class="flex-row" style="align-items:flex-start;">
+        <img id="smartThumb" src="" style="width:100px; height:100px; object-fit:cover; border-radius:8px; margin-right:15px;" alt="">
+        <div style="flex:1;">
+          <div class="flex-row" style="flex-direction:column; gap:8px;">
+            <input type="text" id="smartTitle" placeholder="Title" style="width:100%;">
+            <input type="text" id="smartArtist" placeholder="Artist" style="width:100%;">
+          </div>
+        </div>
+      </div>
+      <div class="flex-row" style="margin-top:15px;">
+        <select id="smartFormat">
+          <option value="mp3">MP3 192kbps</option>
+          <option value="mp3_320">MP3 320kbps</option>
+          <option value="m4a">M4A</option>
+          <option value="wav">WAV</option>
+          <option value="aac">AAC</option>
+          <option value="ogg">OGG</option>
+          <option value="flac">FLAC</option>
+        </select>
+        <button id="smartDownloadBtn">⬇️ Download</button>
+      </div>
+      <p id="smartStatus" style="margin-top:10px; color:#aaa;"></p>
+    </div>
   </div>
 
   <div class="tabs">
@@ -149,7 +175,7 @@
     <!-- Converter Tab -->
     <div id="converterTab" class="hidden">
       <h3>Select a video or audio file from your device</h3>
-      <div id="localDropZone" class="file-drop-zone" style="border:2px dashed var(--border); border-radius:12px; padding:20px; text-align:center; cursor:pointer; margin-bottom:15px;">
+      <div id="localDropZone" class="file-drop-zone">
         <input type="file" id="localFileInput" style="display:none;" accept="video/*,audio/*">
         <button id="selectFileBtn">📂 Choose File</button>
         <p style="margin-top:10px;">or drag & drop here</p>
@@ -185,7 +211,7 @@
 <div class="theme-btn" onclick="toggleTheme()">🌓</div>
 
 <script>
-// ---------- GLOBALS ----------
+// ========== GLOBALS ==========
 const HISTORY_KEY = 'ytDownloadHistory';
 let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
 function saveHistory(item) { history.unshift({...item, date:new Date().toLocaleString()}); if(history.length>50) history.pop(); localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); renderHistory(); }
@@ -205,6 +231,7 @@ function toggleTheme() { document.body.classList.toggle('light-mode'); localStor
 const tabs = document.querySelectorAll('.tab');
 const downloadTab = document.getElementById('downloadTab');
 const converterTab = document.getElementById('converterTab');
+const dropZone = document.getElementById('dropZone');
 let currentTab = 'video';
 tabs.forEach(t => t.addEventListener('click', function(){
   tabs.forEach(tab=>tab.classList.remove('active')); this.classList.add('active');
@@ -212,16 +239,16 @@ tabs.forEach(t => t.addEventListener('click', function(){
   if(currentTab==='converter') {
     downloadTab.classList.add('hidden');
     converterTab.classList.remove('hidden');
-    document.getElementById('dropZone').style.display='none';
+    if(dropZone) dropZone.style.display='none';
   } else {
     converterTab.classList.add('hidden');
     downloadTab.classList.remove('hidden');
-    document.getElementById('dropZone').style.display='block';
+    if(dropZone) dropZone.style.display='block';
     resetPreviews();
   }
 }));
 
-// ---------- DOM ----------
+// ---------- DOWNLOAD LOGIC ----------
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
 const previewDiv = document.getElementById('preview');
@@ -262,6 +289,17 @@ urlInput.addEventListener('input', ()=>{
     }catch(e){}
   }, 1000);
 });
+
+// drag & drop (for URL)
+if(dropZone) {
+  dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e=>{
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    const text = e.dataTransfer.getData('text/plain');
+    if(text) { urlInput.value=text; fetchBtn.click(); }
+  });
+}
 
 // clipboard
 document.getElementById('clipboardBtn').addEventListener('click', async ()=>{
@@ -562,26 +600,81 @@ convertLocalBtn.addEventListener('click', async ()=>{
   } catch(e) { alert('Conversion failed'); convertLocalBtn.disabled = false; }
 });
 
-// ---------- SPOTIFY DOWNLOAD ----------
-document.getElementById('spotifyDownloadBtn').addEventListener('click', async () => {
-  const url = document.getElementById('spotifyUrl').value.trim();
-  if (!url.includes('spotify.com')) { alert('Please enter a valid Spotify URL'); return; }
-  progressArea.classList.remove('hidden');
-  progressFill.style.width = '0%';
-  statusText.textContent = 'Starting Spotify download...';
-  fileLink.classList.add('hidden');
-  copyLinkBtn.classList.add('hidden');
-  playBtn.classList.add('hidden');
-  document.getElementById('subtitleLinks').classList.add('hidden');
-  speedCanvas.classList.add('hidden');
+// ---------- SMART DOWNLOAD ----------
+const smartUrl = document.getElementById('smartUrl');
+const smartFetchBtn = document.getElementById('smartFetchBtn');
+const smartInfo = document.getElementById('smartInfo');
+const smartThumb = document.getElementById('smartThumb');
+const smartTitle = document.getElementById('smartTitle');
+const smartArtist = document.getElementById('smartArtist');
+const smartFormat = document.getElementById('smartFormat');
+const smartDownloadBtn = document.getElementById('smartDownloadBtn');
+const smartStatus = document.getElementById('smartStatus');
+let smartMeta = null;
 
+smartFetchBtn.addEventListener('click', async () => {
+  const url = smartUrl.value.trim();
+  if (!url) return alert('Please enter a URL');
+  smartStatus.textContent = 'Fetching metadata...';
+  smartFetchBtn.disabled = true;
   try {
-    const res = await fetch('/api/spotify', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url, audio_format: 'mp3' }) });
+    const res = await fetch('/api/extract_metadata', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url })
+    });
     const data = await res.json();
-    if (data.error) { statusText.textContent = 'Error: ' + data.error; return; }
+    if (data.error) {
+      smartStatus.textContent = 'Error: ' + data.error;
+      smartFetchBtn.disabled = false;
+      return;
+    }
+    smartMeta = data;
+    smartTitle.value = data.title;
+    smartArtist.value = data.artist;
+    smartThumb.src = data.thumbnail || '';
+    smartInfo.classList.remove('hidden');
+    smartStatus.textContent = '';
+    smartFetchBtn.disabled = false;
+  } catch (e) {
+    smartStatus.textContent = 'Network error';
+    smartFetchBtn.disabled = false;
+  }
+});
+
+smartDownloadBtn.addEventListener('click', async () => {
+  if (!smartMeta) return;
+  const title = smartTitle.value.trim();
+  const artist = smartArtist.value.trim();
+  if (!title || !artist) return alert('Title and artist are required');
+  const format = smartFormat.value;
+  smartDownloadBtn.disabled = true;
+  smartStatus.textContent = 'Starting download...';
+  try {
+    const res = await fetch('/api/smart_download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        url: smartUrl.value.trim(),
+        title, artist,
+        audio_format: format
+      })
+    });
+    const data = await res.json();
+    if (data.error) {
+      smartStatus.textContent = 'Error: ' + data.error;
+      smartDownloadBtn.disabled = false;
+      return;
+    }
     currentDownloadId = data.download_id;
+    progressArea.classList.remove('hidden');
     startPolling(currentDownloadId);
-  } catch (e) { statusText.textContent = 'Network error'; }
+    smartDownloadBtn.disabled = false;
+    smartStatus.textContent = 'Downloading...';
+  } catch (e) {
+    smartStatus.textContent = 'Network error';
+    smartDownloadBtn.disabled = false;
+  }
 });
 </script>
 </body>
