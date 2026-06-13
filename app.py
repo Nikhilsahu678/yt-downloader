@@ -45,6 +45,7 @@ def download_worker(download_id, url, options):
             'ignoreerrors': True,
             'nocheckcertificate': True,
             'noplaylist': not options.get('playlist', False),
+            'overwrites': True,                # ← prevents stuck downloads
         }
 
         if options.get('speed_limit'):
@@ -205,6 +206,24 @@ def download_worker(download_id, url, options):
             os.remove(filepath)
             status['filename'] = new_name
 
+        # ========== CUSTOM METADATA (for Smart Download) ==========
+        custom_title = options.get('custom_title')
+        custom_artist = options.get('custom_artist')
+        if custom_title or custom_artist:
+            filepath = os.path.join(f'downloads/{download_id}', status['filename'])
+            tmp_file = filepath + '.tmp'
+            cmd = ['ffmpeg', '-y', '-i', filepath]
+            if custom_title:
+                cmd += ['-metadata', f'title={custom_title}']
+            if custom_artist:
+                cmd += ['-metadata', f'artist={custom_artist}']
+            cmd += ['-c', 'copy', tmp_file]
+            try:
+                subprocess.run(cmd, check=True)
+                os.replace(tmp_file, filepath)
+            except subprocess.CalledProcessError:
+                pass   # keep original metadata if ffmpeg fails
+
         status['subtitles'] = []
         for root, dirs, files in os.walk(f'downloads/{download_id}'):
             for f in files:
@@ -326,7 +345,7 @@ def get_file(download_id, filename):
     directory = os.path.join('downloads', download_id)
     return send_from_directory(directory, filename, as_attachment=True)
 
-# ---------- LOCAL CONVERTER ----------
+# ---------- LOCAL CONVERTER (same as before) ----------
 @app.route('/api/local/info', methods=['POST'])
 def local_file_info():
     if 'file' not in request.files:
@@ -417,36 +436,45 @@ def extract_metadata():
         'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
     }
 
+    title = ''
+    artist = ''
+    thumbnail = ''
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-        if info is None:
-            if is_spotify:
-                ydl_opts['extract_flat'] = True
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl_flat:
-                    info = ydl_flat.extract_info(url, download=False)
-            if info is None:
-                return jsonify({'error': 'Could not extract metadata. Please enter title and artist manually.'}), 200
+        if info is None and is_spotify:
+            ydl_opts['extract_flat'] = True
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl_flat:
+                info = ydl_flat.extract_info(url, download=False)
 
-        if is_spotify:
-            if 'entries' in info:
-                entries = [e for e in info['entries'] if e]
-                if not entries:
-                    return jsonify({'error': 'No tracks found'}), 404
-                track = entries[0]
+        if info is not None:
+            if is_spotify:
+                if 'entries' in info:
+                    entries = [e for e in info['entries'] if e]
+                    if entries:
+                        track = entries[0]
+                        title = track.get('title', '').strip()
+                        artist = track.get('uploader', track.get('artist', track.get('channel', ''))).strip()
+                        thumbnail = track.get('thumbnail', '')
+                else:
+                    title = info.get('title', '').strip()
+                    artist = info.get('uploader', info.get('artist', info.get('channel', ''))).strip()
+                    thumbnail = info.get('thumbnail', '')
             else:
-                track = info
-            title = track.get('title', '').strip()
-            artist = track.get('uploader', track.get('artist', track.get('channel', ''))).strip()
-            thumbnail = track.get('thumbnail', '')
-            return jsonify({'title': title, 'artist': artist, 'thumbnail': thumbnail, 'type': 'spotify'})
-        else:
-            title = info.get('title', '').strip()
-            artist = info.get('uploader', info.get('channel', '')).strip()
-            thumbnail = info.get('thumbnail', '')
-            return jsonify({'title': title, 'artist': artist, 'thumbnail': thumbnail, 'type': 'youtube'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+                title = info.get('title', '').strip()
+                artist = info.get('uploader', info.get('channel', '')).strip()
+                thumbnail = info.get('thumbnail', '')
+    except Exception:
+        pass
+
+    return jsonify({
+        'title': title,
+        'artist': artist,
+        'thumbnail': thumbnail,
+        'type': 'spotify' if is_spotify else 'youtube',
+        'extracted': bool(title)
+    })
 
 @app.route('/api/smart_download', methods=['POST'])
 def smart_download():
@@ -496,6 +524,8 @@ def smart_download():
         'batch_urls': None,
         'custom_filename': None,
         'scheduled_time': None,
+        'custom_title': title,        # ← passes edited title
+        'custom_artist': artist,      # ← passes edited artist
     }
     thread = threading.Thread(target=download_worker, args=(download_id, video_url, options))
     thread.daemon = True
