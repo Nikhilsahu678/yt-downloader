@@ -57,6 +57,7 @@
     <div class="flex-row">
       <input type="text" id="smartUrl" placeholder="Paste Spotify or YouTube Music link" style="flex:1;">
       <button id="smartFetchBtn">Fetch Info</button>
+      <button id="smartFetchDownloadBtn" style="background:var(--accent2);">⚡ Fetch & Download</button>
     </div>
     <div id="smartInfo" class="hidden card" style="margin-top:15px;">
       <div class="flex-row" style="align-items:flex-start;">
@@ -603,6 +604,7 @@ convertLocalBtn.addEventListener('click', async ()=>{
 // ---------- SMART DOWNLOAD ----------
 const smartUrl = document.getElementById('smartUrl');
 const smartFetchBtn = document.getElementById('smartFetchBtn');
+const smartFetchDownloadBtn = document.getElementById('smartFetchDownloadBtn');
 const smartInfo = document.getElementById('smartInfo');
 const smartThumb = document.getElementById('smartThumb');
 const smartTitle = document.getElementById('smartTitle');
@@ -612,6 +614,7 @@ const smartDownloadBtn = document.getElementById('smartDownloadBtn');
 const smartStatus = document.getElementById('smartStatus');
 let smartMeta = null;
 
+// Fetch metadata only
 smartFetchBtn.addEventListener('click', async () => {
   const url = smartUrl.value.trim();
   if (!url) return alert('Please enter a URL');
@@ -642,6 +645,7 @@ smartFetchBtn.addEventListener('click', async () => {
   }
 });
 
+// Download after editing
 smartDownloadBtn.addEventListener('click', async () => {
   if (!smartMeta) return;
   const title = smartTitle.value.trim();
@@ -674,6 +678,63 @@ smartDownloadBtn.addEventListener('click', async () => {
   } catch (e) {
     smartStatus.textContent = 'Network error';
     smartDownloadBtn.disabled = false;
+  }
+});
+
+// Fetch & Download immediately
+smartFetchDownloadBtn.addEventListener('click', async () => {
+  const url = smartUrl.value.trim();
+  if (!url) return alert('Please enter a URL');
+  smartStatus.textContent = 'Fetching metadata...';
+  smartFetchBtn.disabled = true;
+  smartFetchDownloadBtn.disabled = true;
+  try {
+    // 1. Fetch metadata
+    const res = await fetch('/api/extract_metadata', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.error) {
+      smartStatus.textContent = 'Error: ' + data.error;
+      smartFetchBtn.disabled = false;
+      smartFetchDownloadBtn.disabled = false;
+      return;
+    }
+    smartTitle.value = data.title;
+    smartArtist.value = data.artist;
+    smartThumb.src = data.thumbnail || '';
+    smartInfo.classList.remove('hidden');
+    smartMeta = data;
+
+    // 2. Immediately start the download
+    smartStatus.textContent = 'Starting download...';
+    const format = smartFormat.value;
+    const downloadRes = await fetch('/api/smart_download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        url: url,
+        title: data.title,
+        artist: data.artist,
+        audio_format: format
+      })
+    });
+    const downloadData = await downloadRes.json();
+    if (downloadData.error) {
+      smartStatus.textContent = 'Error: ' + downloadData.error;
+    } else {
+      currentDownloadId = downloadData.download_id;
+      progressArea.classList.remove('hidden');
+      startPolling(currentDownloadId);
+      smartStatus.textContent = 'Downloading...';
+    }
+  } catch (e) {
+    smartStatus.textContent = 'Network error';
+  } finally {
+    smartFetchBtn.disabled = false;
+    smartFetchDownloadBtn.disabled = false;
   }
 });
 </script>
