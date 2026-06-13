@@ -326,7 +326,7 @@ def get_file(download_id, filename):
     directory = os.path.join('downloads', download_id)
     return send_from_directory(directory, filename, as_attachment=True)
 
-# ---------- LOCAL CONVERTER (existing) ----------
+# ---------- LOCAL CONVERTER ----------
 @app.route('/api/local/info', methods=['POST'])
 def local_file_info():
     if 'file' not in request.files:
@@ -414,13 +414,19 @@ def extract_metadata():
         'skip_download': True,
         'extract_flat': False,
         'ignoreerrors': True,
+        'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
         if info is None:
-            return jsonify({'error': 'Could not extract info'}), 400
+            if is_spotify:
+                ydl_opts['extract_flat'] = True
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl_flat:
+                    info = ydl_flat.extract_info(url, download=False)
+            if info is None:
+                return jsonify({'error': 'Could not extract metadata. Please enter title and artist manually.'}), 200
 
         if is_spotify:
             if 'entries' in info:
@@ -433,22 +439,12 @@ def extract_metadata():
             title = track.get('title', '').strip()
             artist = track.get('uploader', track.get('artist', track.get('channel', ''))).strip()
             thumbnail = track.get('thumbnail', '')
-            return jsonify({
-                'title': title,
-                'artist': artist,
-                'thumbnail': thumbnail,
-                'type': 'spotify'
-            })
+            return jsonify({'title': title, 'artist': artist, 'thumbnail': thumbnail, 'type': 'spotify'})
         else:
             title = info.get('title', '').strip()
             artist = info.get('uploader', info.get('channel', '')).strip()
             thumbnail = info.get('thumbnail', '')
-            return jsonify({
-                'title': title,
-                'artist': artist,
-                'thumbnail': thumbnail,
-                'type': 'youtube'
-            })
+            return jsonify({'title': title, 'artist': artist, 'thumbnail': thumbnail, 'type': 'youtube'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -474,6 +470,7 @@ def smart_download():
             'skip_download': True,
             'extract_flat': False,
             'noplaylist': True,
+            'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
         }
         try:
             with yt_dlp.YoutubeDL(search_opts) as ydl_search:
