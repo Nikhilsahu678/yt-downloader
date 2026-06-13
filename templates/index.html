@@ -229,6 +229,7 @@ const tabs = document.querySelectorAll('.tab');
 const downloadTab = document.getElementById('downloadTab');
 const converterTab = document.getElementById('converterTab');
 const dropZone = document.getElementById('dropZone');
+const spotifySection = document.getElementById('spotifySection');
 let currentTab = 'video';
 tabs.forEach(t => t.addEventListener('click', function(){
   tabs.forEach(tab=>tab.classList.remove('active')); this.classList.add('active');
@@ -237,18 +238,18 @@ tabs.forEach(t => t.addEventListener('click', function(){
     downloadTab.classList.add('hidden');
     converterTab.classList.remove('hidden');
     dropZone.style.display='none';
-    document.getElementById('spotifySection').classList.add('hidden');
+    spotifySection.classList.add('hidden');
   } else {
     converterTab.classList.add('hidden');
     downloadTab.classList.remove('hidden');
     dropZone.style.display='block';
     // Show Spotify section only in Music tab
-    document.getElementById('spotifySection').classList.toggle('hidden', currentTab !== 'audio');
+    spotifySection.classList.toggle('hidden', currentTab !== 'audio');
     resetPreviews();
   }
 }));
 
-// ---------- DOWNLOAD LOGIC (existing) ----------
+// ---------- DOWNLOAD LOGIC ----------
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
 const previewDiv = document.getElementById('preview');
