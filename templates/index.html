@@ -10,7 +10,7 @@
     .light-mode { --bg:#f5f5f5; --card:#fff; --text:#111; --accent:#d32f2f; --input-bg:#fff; --border:#ccc; }
     * { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; padding-bottom:calc(20px + var(--nav-h)); transition:background 0.3s; }
-    .container { width:100%; max-width:800px; background:var(--card); border-radius:24px; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,0.5); }
+    .container { width:100%; max-width:850px; background:var(--card); border-radius:24px; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,0.5); }
     .header { padding:20px; font-size:26px; font-weight:700; text-align:center; border-bottom:2px solid var(--accent); }
     .tabs { display:flex; }
     .tab { flex:1; text-align:center; padding:16px 8px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }
@@ -38,6 +38,7 @@
     }
     .file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:20px; text-align:center; cursor:pointer; margin-bottom:15px; }
     .file-drop-zone.drag-over { border-color:var(--accent); background:rgba(255,0,0,0.1); }
+    #spotifySection { margin-top:20px; padding:15px; border-top:1px solid var(--border); }
   </style>
 </head>
 <body>
@@ -136,6 +137,16 @@
           <div id="plItems" style="max-height:200px; overflow-y:auto; margin-bottom:10px;"></div>
           <div class="flex-row"><button id="dlPlaylistVideo">Download Videos</button><button id="dlPlaylistAudio">Download Audio</button></div>
         </div>
+
+        <!-- Spotify Download Section -->
+        <div id="spotifySection" class="hidden">
+          <h4 style="margin-bottom:10px;">🎧 Download via Spotify Link</h4>
+          <div class="flex-row">
+            <input type="text" id="spotifyUrl" placeholder="Paste Spotify track/playlist link" style="flex:1;">
+            <button id="spotifyDownloadBtn">🎵 Get from YouTube</button>
+          </div>
+          <p style="color:#aaa; font-size:12px;">Extracts song info from Spotify and downloads the best matching audio from YouTube.</p>
+        </div>
       </div>
 
       <div id="queueArea" class="hidden card"></div>
@@ -226,15 +237,18 @@ tabs.forEach(t => t.addEventListener('click', function(){
     downloadTab.classList.add('hidden');
     converterTab.classList.remove('hidden');
     dropZone.style.display='none';
+    document.getElementById('spotifySection').classList.add('hidden');
   } else {
     converterTab.classList.add('hidden');
     downloadTab.classList.remove('hidden');
     dropZone.style.display='block';
+    // Show Spotify section only in Music tab
+    document.getElementById('spotifySection').classList.toggle('hidden', currentTab !== 'audio');
     resetPreviews();
   }
 }));
 
-// ---------- DOWNLOAD LOGIC (keep all existing functions) ----------
+// ---------- DOWNLOAD LOGIC (existing) ----------
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
 const previewDiv = document.getElementById('preview');
@@ -588,6 +602,681 @@ convertLocalBtn.addEventListener('click', async ()=>{
     localDownloadLink.classList.remove('hidden');
     convertLocalBtn.disabled = false;
   } catch(e) { alert('Conversion failed'); convertLocalBtn.disabled = false; }
+});
+
+// ---------- SPOTIFY DOWNLOAD ----------
+document.getElementById('spotifyDownloadBtn').addEventListener('click', async () => {
+  const url = document.getElementById('spotifyUrl').value.trim();
+  if (!url.includes('spotify.com')) {
+    alert('Please enter a valid Spotify URL');
+    return;
+  }
+  progressArea.classList.remove('hidden');
+  progressFill.style.width = '0%';
+  statusText.textContent = 'Starting Spotify download...';
+  fileLink.classList.add('hidden');
+  copyLinkBtn.classList.add('hidden');
+  playBtn.classList.add('hidden');
+  document.getElementById('subtitleLinks').classList.add('hidden');
+  speedCanvas.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/spotify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, audio_format: 'mp3' })
+    });
+    const data = await res.json();
+    if (data.error) {
+      statusText.textContent = 'Error: ' + data.error;
+      return;
+    }
+    currentDownloadId = data.download_id;
+    startPolling(currentDownloadId);
+  } catch (e) {
+    statusText.textContent = 'Network error';
+  }
+});
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>YT Downloader Pro</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <style>
+    :root { --bg:#0f0f0f; --card:#1a1a1a; --text:#fff; --accent:#ff0000; --input-bg:#2a2a2a; --border:#333; --nav-h:60px; }
+    .light-mode { --bg:#f5f5f5; --card:#fff; --text:#111; --accent:#d32f2f; --input-bg:#fff; --border:#ccc; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; padding-bottom:calc(20px + var(--nav-h)); transition:background 0.3s; }
+    .container { width:100%; max-width:850px; background:var(--card); border-radius:24px; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,0.5); }
+    .header { padding:20px; font-size:26px; font-weight:700; text-align:center; border-bottom:2px solid var(--accent); }
+    .tabs { display:flex; }
+    .tab { flex:1; text-align:center; padding:16px 8px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }
+    .tab.active { border-bottom-color:var(--accent); color:var(--accent); }
+    .content { padding:20px; }
+    .flex-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+    input,select,button,textarea { background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; outline:none; }
+    button { background:var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+    .hidden { display:none; }
+    .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:12px; border:1px solid var(--border); }
+    .thumb-img { width:100%; max-height:200px; object-fit:cover; border-radius:8px; margin-bottom:8px; cursor:pointer; }
+    .poster-card { position:relative; border-radius:16px; overflow:hidden; background:#111; }
+    .poster-card .blur-bg { filter:blur(20px); position:absolute; top:0;left:0;right:0;bottom:0; opacity:0.5; transform:scale(1.1); }
+    .poster-card .inner { position:relative; z-index:1; padding:24px; text-align:center; }
+    .poster-card img { width:160px; height:160px; object-fit:cover; border-radius:16px; margin-bottom:15px; }
+    .progress-bar { height:6px; background:#333; border-radius:3px; margin:10px 0; }
+    .progress-fill { height:100%; width:0%; background:var(--accent); transition:width 0.3s; }
+    .video-player { width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; margin-bottom:10px; }
+    .video-player iframe { width:100%; height:100%; border:none; }
+    .theme-btn { position:fixed; bottom:20px; right:20px; background:var(--accent); width:45px; height:45px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1000; font-size:20px; }
+    @media (max-width:768px) {
+      .tabs { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:2px solid var(--border); z-index:999; }
+      .tab { font-size:12px; padding:12px 4px; border-bottom:none; border-top:2px solid transparent; }
+      .tab.active { border-top-color:var(--accent); }
+    }
+    .file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:20px; text-align:center; cursor:pointer; margin-bottom:15px; }
+    .file-drop-zone.drag-over { border-color:var(--accent); background:rgba(255,0,0,0.1); }
+    #spotifySection { margin-top:20px; padding:15px; border-top:1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">⬇️ YT Downloader Pro</div>
+  <div class="tabs">
+    <div class="tab active" data-tab="video">🎥 Video</div>
+    <div class="tab" data-tab="audio">🎵 Music</div>
+    <div class="tab" data-tab="playlist">📀 Playlist</div>
+    <div class="tab" data-tab="converter">🔄 Converter</div>
+  </div>
+  <div class="content">
+    <!-- URL drag & drop -->
+    <div id="dropZone" class="file-drop-zone" style="margin-bottom:15px;">📥 Drag & drop a YouTube link here</div>
+
+    <!-- Download tabs (Video/Music/Playlist) -->
+    <div id="downloadTab">
+      <div class="flex-row">
+        <input type="text" id="urlInput" placeholder="Paste YouTube link">
+        <button id="clipboardBtn">📋</button>
+        <button id="fetchBtn">Fetch</button>
+      </div>
+      <div id="nonYoutubeWarn" class="hidden" style="color:orange;">⚠️ Non‑YouTube URL</div>
+      <div class="flex-row">
+        <input type="text" id="customFilename" placeholder="Custom filename (optional)" style="flex:1;">
+        <span id="batchModeBtn" style="background:var(--input-bg); padding:8px 16px; border-radius:20px; cursor:pointer;">📦 Batch</span>
+      </div>
+      <textarea id="batchUrls" class="hidden" placeholder="Multiple links (one per line)" style="width:100%; height:80px; margin-bottom:10px;"></textarea>
+      <div class="flex-row">
+        <input type="datetime-local" id="scheduleTime" style="flex:1;">
+        <button id="scheduleBtn">⏰ Schedule</button>
+      </div>
+
+      <!-- Preview card -->
+      <div id="preview" class="hidden card">
+        <div id="videoPreview" class="hidden">
+          <div id="videoPlayerContainer" class="video-player hidden"></div>
+          <img id="videoThumb" class="thumb-img">
+          <h3 id="videoTitle"></h3>
+          <div class="flex-row">
+            <select id="formatSelect">
+              <option value="mp4">MP4</option>
+              <option value="mkv">MKV</option>
+              <option value="mpeg">MPEG</option>
+              <option value="mpg">MPG</option>
+              <option value="mov">MOV</option>
+              <option value="webm">WebM</option>
+              <option value="avi">AVI</option>
+            </select>
+            <select id="qualitySelect">
+              <option value="best">Best</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="360p">360p</option>
+            </select>
+            <span id="fileSizeEstimate"></span>
+          </div>
+          <div class="flex-row">
+            <input type="text" id="trimStart" placeholder="Start (hh:mm:ss)">
+            <input type="text" id="trimEnd" placeholder="End (hh:mm:ss)">
+          </div>
+          <div class="flex-row">
+            <label><input type="checkbox" id="subtitles"> Subs</label>
+            <label>Speed(KB/s):<input type="number" id="speedLimit" value="0" min="0" style="width:80px;"></label>
+            <select id="convertTo">
+              <option value="">No convert</option>
+              <option value="mp4">MP4</option><option value="mkv">MKV</option><option value="mpeg">MPEG</option><option value="mpg">MPG</option><option value="mov">MOV</option><option value="webm">WebM</option><option value="avi">AVI</option>
+              <option value="mp3">MP3</option><option value="wav">WAV</option><option value="aac">AAC</option><option value="ogg">OGG</option><option value="flac">FLAC</option>
+            </select>
+          </div>
+          <button id="downloadVideoBtn">Download Video</button>
+        </div>
+
+        <div id="musicPreview" class="hidden poster-card">
+          <div class="blur-bg" id="musicBlurBg"></div>
+          <div class="inner">
+            <img id="musicThumb">
+            <h3 id="musicTitle"></h3>
+            <p id="musicDuration"></p>
+            <select id="audioFormatSelect">
+              <option value="mp3">MP3 192kbps</option>
+              <option value="mp3_320">MP3 320kbps</option>
+              <option value="m4a">M4A</option>
+              <option value="wav">WAV</option>
+              <option value="aac">AAC</option>
+              <option value="ogg">OGG</option>
+              <option value="flac">FLAC</option>
+            </select>
+            <button id="downloadMusicBtn">Download MP3</button>
+          </div>
+        </div>
+
+        <div id="playlistPreview" class="hidden">
+          <h3 id="plTitle"></h3><p id="plCount"></p>
+          <div class="flex-row"><label><input type="checkbox" id="selectAllCheckbox"> Select All</label><span id="selectionInfo">0 selected</span></div>
+          <div id="plItems" style="max-height:200px; overflow-y:auto; margin-bottom:10px;"></div>
+          <div class="flex-row"><button id="dlPlaylistVideo">Download Videos</button><button id="dlPlaylistAudio">Download Audio</button></div>
+        </div>
+
+        <!-- Spotify Download Section -->
+        <div id="spotifySection" class="hidden">
+          <h4 style="margin-bottom:10px;">🎧 Download via Spotify Link</h4>
+          <div class="flex-row">
+            <input type="text" id="spotifyUrl" placeholder="Paste Spotify track/playlist link" style="flex:1;">
+            <button id="spotifyDownloadBtn">🎵 Get from YouTube</button>
+          </div>
+          <p style="color:#aaa; font-size:12px;">Extracts song info from Spotify and downloads the best matching audio from YouTube.</p>
+        </div>
+      </div>
+
+      <div id="queueArea" class="hidden card"></div>
+      <div id="progressArea" class="hidden card">
+        <canvas id="speedGraph" class="hidden" style="width:100%; height:60px; background:#111; border-radius:8px;"></canvas>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div id="statusText" style="margin:8px 0;"></div>
+        <a id="fileLink" class="hidden" href="#" style="display:block; color:var(--accent);">⬇️ Download ready</a>
+        <div id="subtitleLinks" class="hidden"></div>
+        <button id="playBtn" class="hidden">▶ Play</button>
+        <button id="copyLinkBtn" class="hidden">📋 Copy link</button>
+      </div>
+    </div>
+
+    <!-- Converter Tab -->
+    <div id="converterTab" class="hidden">
+      <h3>Select a video or audio file from your device</h3>
+      <div id="localDropZone" class="file-drop-zone">
+        <input type="file" id="localFileInput" style="display:none;" accept="video/*,audio/*">
+        <button id="selectFileBtn">📂 Choose File</button>
+        <p style="margin-top:10px;">or drag & drop here</p>
+      </div>
+      <div id="localFileInfo" class="hidden card">
+        <h4>File Info</h4>
+        <p id="localFileName"></p>
+        <p id="localFileFormat"></p>
+        <p id="localFileDuration"></p>
+        <div class="flex-row">
+          <label>Convert to:</label>
+          <select id="localTargetFormat">
+            <option value="mp4">MP4</option>
+            <option value="mkv">MKV</option>
+            <option value="mov">MOV</option>
+            <option value="webm">WebM</option>
+            <option value="avi">AVI</option>
+            <option value="mp3">MP3</option>
+            <option value="wav">WAV</option>
+            <option value="aac">AAC</option>
+            <option value="ogg">OGG</option>
+            <option value="flac">FLAC</option>
+          </select>
+          <button id="convertLocalBtn">Convert</button>
+        </div>
+        <div id="localProgressArea" class="hidden">
+          <div class="progress-bar"><div class="progress-fill" id="localProgressFill"></div></div>
+          <p id="localStatusText"></p>
+        </div>
+        <a id="localDownloadLink" class="hidden" href="#" style="display:block; color:var(--accent);">⬇️ Download Converted File</a>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div id="historyArea" style="margin-top:20px;">
+      <h3>📜 Recent Downloads <button id="exportCsvBtn" style="font-size:12px;">Export CSV</button></h3>
+      <div id="historyList"></div>
+    </div>
+  </div>
+</div>
+<div class="theme-btn" onclick="toggleTheme()">🌓</div>
+
+<script>
+// ========== GLOBALS ==========
+const HISTORY_KEY = 'ytDownloadHistory';
+let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+function saveHistory(item) { history.unshift({...item, date:new Date().toLocaleString()}); if(history.length>50) history.pop(); localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); renderHistory(); }
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  if(!history.length) { list.innerHTML='<p>No downloads yet.</p>'; return; }
+  list.innerHTML = history.map(h=>`<div style="padding:5px;border-bottom:1px solid var(--border);"><strong>${h.title}</strong><br><small>${h.date} · ${h.type} · <a href="${h.url}" target="_blank">Source</a></small></div>`).join('');
+}
+renderHistory();
+
+// theme
+const storedTheme = localStorage.getItem('theme')||'dark';
+if(storedTheme==='light') document.body.classList.add('light-mode');
+function toggleTheme() { document.body.classList.toggle('light-mode'); localStorage.setItem('theme', document.body.classList.contains('light-mode')?'light':'dark'); }
+
+// tabs
+const tabs = document.querySelectorAll('.tab');
+const downloadTab = document.getElementById('downloadTab');
+const converterTab = document.getElementById('converterTab');
+const dropZone = document.getElementById('dropZone');
+let currentTab = 'video';
+tabs.forEach(t => t.addEventListener('click', function(){
+  tabs.forEach(tab=>tab.classList.remove('active')); this.classList.add('active');
+  currentTab = this.dataset.tab;
+  if(currentTab==='converter') {
+    downloadTab.classList.add('hidden');
+    converterTab.classList.remove('hidden');
+    dropZone.style.display='none';
+    document.getElementById('spotifySection').classList.add('hidden');
+  } else {
+    converterTab.classList.add('hidden');
+    downloadTab.classList.remove('hidden');
+    dropZone.style.display='block';
+    // Show Spotify section only in Music tab
+    document.getElementById('spotifySection').classList.toggle('hidden', currentTab !== 'audio');
+    resetPreviews();
+  }
+}));
+
+// ---------- DOWNLOAD LOGIC (existing) ----------
+const urlInput = document.getElementById('urlInput');
+const fetchBtn = document.getElementById('fetchBtn');
+const previewDiv = document.getElementById('preview');
+const videoPreview = document.getElementById('videoPreview');
+const musicPreview = document.getElementById('musicPreview');
+const playlistPreview = document.getElementById('playlistPreview');
+const progressArea = document.getElementById('progressArea');
+const progressFill = document.getElementById('progressFill');
+const statusText = document.getElementById('statusText');
+const fileLink = document.getElementById('fileLink');
+const copyLinkBtn = document.getElementById('copyLinkBtn');
+const playBtn = document.getElementById('playBtn');
+const videoPlayerContainer = document.getElementById('videoPlayerContainer');
+const videoThumb = document.getElementById('videoThumb');
+const nonYoutubeWarn = document.getElementById('nonYoutubeWarn');
+const fileSizeEstimate = document.getElementById('fileSizeEstimate');
+const speedCanvas = document.getElementById('speedGraph');
+const ctx = speedCanvas.getContext('2d');
+let currentVideoId = null, playlistEntries = [], currentDownloadId = null, pollInterval = null;
+
+// auto detect playlist
+let autoTimer;
+urlInput.addEventListener('input', ()=>{
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(async ()=>{
+    const url = urlInput.value.trim();
+    if(!url) return;
+    try {
+      const res = await fetch('/api/info', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+      const data = await res.json();
+      if(data.type==='playlist') {
+        tabs.forEach(t=>t.classList.remove('active'));
+        document.querySelector('.tab[data-tab="playlist"]').classList.add('active');
+        currentTab='playlist';
+        resetPreviews();
+        fetchBtn.click();
+      }
+    }catch(e){}
+  }, 1000);
+});
+
+// drag & drop
+dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e=>{
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const text = e.dataTransfer.getData('text/plain');
+  if(text) { urlInput.value=text; fetchBtn.click(); }
+});
+
+// clipboard
+document.getElementById('clipboardBtn').addEventListener('click', async ()=>{
+  const text = await navigator.clipboard.readText().catch(()=>null);
+  if(text && (text.includes('youtube.com')||text.includes('youtu.be'))) { urlInput.value=text; fetchBtn.click(); }
+  else alert('No YouTube link found.');
+});
+
+// batch toggle
+document.getElementById('batchModeBtn').addEventListener('click', ()=> document.getElementById('batchUrls').classList.toggle('hidden'));
+
+// fetch info
+fetchBtn.addEventListener('click', async ()=>{
+  const url = urlInput.value.trim();
+  if(!url) return alert('Enter URL');
+  resetPreviews();
+  try {
+    const res = await fetch('/api/info', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+    const data = await res.json();
+    if(data.error) return alert(data.error);
+    previewDiv.classList.remove('hidden');
+    nonYoutubeWarn.classList.toggle('hidden', data.is_youtube!==false);
+    if(data.type==='playlist') {
+      playlistEntries = data.entries;
+      buildPlaylistUI(playlistEntries);
+      document.getElementById('plTitle').textContent = data.title;
+      document.getElementById('plCount').textContent = `${data.video_count} videos`;
+      playlistPreview.classList.remove('hidden');
+    } else {
+      if(currentTab==='audio') {
+        musicPreview.classList.remove('hidden');
+        document.getElementById('musicTitle').textContent = data.title;
+        document.getElementById('musicThumb').src = data.thumbnail;
+        document.getElementById('musicDuration').textContent = data.duration ? `${Math.floor(data.duration/60)}:${String(data.duration%60).padStart(2,'0')}` : '';
+        document.getElementById('musicBlurBg').style.backgroundImage = `url(${data.thumbnail})`;
+      } else {
+        videoPreview.classList.remove('hidden');
+        document.getElementById('videoTitle').textContent = data.title;
+        videoThumb.src = data.thumbnail;
+        videoThumb.classList.remove('hidden');
+        videoPlayerContainer.classList.add('hidden');
+        currentVideoId = data.video_id;
+        videoThumb.onclick = ()=>{
+          if(currentVideoId) {
+            videoPlayerContainer.innerHTML = `<iframe src="https://www.youtube.com/embed/${currentVideoId}" allowfullscreen></iframe>`;
+            videoPlayerContainer.classList.remove('hidden');
+            videoThumb.classList.add('hidden');
+          }
+        };
+        updateFileSizeEstimate(data.formats);
+      }
+    }
+  } catch(e) { alert('Error: '+e.message); }
+});
+
+function updateFileSizeEstimate(formats) {
+  const qualitySelect = document.getElementById('qualitySelect');
+  const estimateSpan = document.getElementById('fileSizeEstimate');
+  function recalc() {
+    const chosen = qualitySelect.value;
+    const fmt = formats.find(f=>f.resolution===chosen || (chosen==='best' && f.resolution==='2160p'));
+    estimateSpan.textContent = fmt && fmt.filesize ? `~${(fmt.filesize/1048576).toFixed(1)} MB` : '';
+  }
+  qualitySelect.addEventListener('change', recalc);
+  recalc();
+}
+
+function buildPlaylistUI(entries) {
+  const container = document.getElementById('plItems');
+  container.innerHTML = entries.map((e,i)=>`
+    <div class="flex-row" style="margin-bottom:6px; align-items:center;">
+      <input type="checkbox" class="video-checkbox" data-index="${i}" onchange="updateSelectionInfo()">
+      <img src="${e.thumbnail||''}" style="width:60px;height:45px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'">
+      <span style="flex:1;">${e.title}</span>
+    </div>`).join('');
+  updateSelectionInfo();
+}
+document.getElementById('selectAllCheckbox').addEventListener('change', function(){
+  document.querySelectorAll('.video-checkbox').forEach(cb=>cb.checked=this.checked);
+  updateSelectionInfo();
+});
+function updateSelectionInfo() {
+  const count = document.querySelectorAll('.video-checkbox:checked').length;
+  document.getElementById('selectionInfo').textContent = `${count} selected`;
+}
+function getSelectedIndexes() {
+  return Array.from(document.querySelectorAll('.video-checkbox:checked')).map(cb=>parseInt(cb.dataset.index));
+}
+
+function resetPreviews() {
+  previewDiv.classList.add('hidden');
+  videoPreview.classList.add('hidden');
+  musicPreview.classList.add('hidden');
+  playlistPreview.classList.add('hidden');
+  progressArea.classList.add('hidden');
+  document.getElementById('queueArea').classList.add('hidden');
+  nonYoutubeWarn.classList.add('hidden');
+  videoPlayerContainer.classList.add('hidden');
+  videoThumb.classList.remove('hidden');
+}
+
+// download triggers
+document.getElementById('downloadVideoBtn').addEventListener('click', ()=>startDownload('video'));
+document.getElementById('downloadMusicBtn').addEventListener('click', ()=>startDownload('audio'));
+document.getElementById('dlPlaylistVideo').addEventListener('click', ()=>startDownload('playlist_video'));
+document.getElementById('dlPlaylistAudio').addEventListener('click', ()=>startDownload('playlist_audio'));
+
+async function startDownload(type) {
+  const url = urlInput.value.trim();
+  if(!url) return;
+  let quality = 'best';
+  if(type==='video'||type==='playlist_video') quality = document.getElementById('qualitySelect').value;
+  const trimStart = document.getElementById('trimStart').value || null;
+  const trimEnd = document.getElementById('trimEnd').value || null;
+  const playlist = type.startsWith('playlist');
+  const formatExt = document.getElementById('formatSelect').value;
+  const audioFormat = document.getElementById('audioFormatSelect')?.value || 'mp3';
+  const speedLimit = parseInt(document.getElementById('speedLimit').value) || null;
+  const subtitles = document.getElementById('subtitles')?.checked || false;
+  const convertTo = document.getElementById('convertTo').value || null;
+  const customFilename = document.getElementById('customFilename').value || null;
+  let selectedIndexes = null;
+  if(playlist) {
+    selectedIndexes = getSelectedIndexes();
+    if(!selectedIndexes.length) return alert('Select at least one video.');
+  }
+  const batchArea = document.getElementById('batchUrls');
+  let batchUrls = null;
+  if(!batchArea.classList.contains('hidden')) {
+    batchUrls = batchArea.value.split('\n').filter(u=>u.trim());
+    if(!batchUrls.length) return alert('Enter batch URLs.');
+  }
+  const scheduledTime = document.getElementById('scheduleTime').value || null;
+
+  const payload = {
+    url, type, quality,
+    trim_start:trimStart, trim_end:trimEnd,
+    playlist, format_ext:formatExt, audio_format:audioFormat,
+    selected_indexes:selectedIndexes,
+    speed_limit:speedLimit, subtitles, convert_to:convertTo,
+    batch_urls:batchUrls, custom_filename:customFilename,
+    scheduled_time:scheduledTime
+  };
+
+  progressArea.classList.remove('hidden');
+  progressFill.style.width='0%';
+  statusText.textContent = scheduledTime ? 'Scheduled...' : 'Starting...';
+  fileLink.classList.add('hidden');
+  copyLinkBtn.classList.add('hidden');
+  playBtn.classList.add('hidden');
+  document.getElementById('subtitleLinks').classList.add('hidden');
+  document.getElementById('queueArea').classList.add('hidden');
+  speedCanvas.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/download', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const data = await res.json();
+    if(data.scheduled) { statusText.textContent = `Scheduled for ${new Date(scheduledTime).toLocaleString()}`; return; }
+    currentDownloadId = data.download_id;
+    startPolling(currentDownloadId);
+  } catch(e) { statusText.textContent='Error starting download.'; }
+}
+
+function startPolling(did) {
+  if(pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async ()=>{
+    const res = await fetch(`/api/progress/${did}`);
+    if(res.status===404) { statusText.textContent='Status not found'; clearInterval(pollInterval); return; }
+    const d = await res.json();
+    if(d.status==='done') {
+      progressFill.style.width='100%';
+      statusText.textContent='Download complete!';
+      fileLink.href=`/file/${did}/${d.filename}`;
+      fileLink.textContent=`⬇️ ${d.filename}`;
+      fileLink.classList.remove('hidden');
+      copyLinkBtn.classList.remove('hidden');
+      playBtn.classList.remove('hidden');
+      playBtn.onclick = ()=>window.open(fileLink.href);
+      if(d.subtitles && d.subtitles.length) {
+        const subDiv = document.getElementById('subtitleLinks');
+        subDiv.innerHTML = '<br>Subtitles: ' + d.subtitles.map(s=>`<a href="/file/${did}/${s}" style="color:var(--accent);">${s}</a>`).join(', ');
+        subDiv.classList.remove('hidden');
+      }
+      saveHistory({ title:d.title||'Unknown', url:urlInput.value, type:currentTab });
+      clearInterval(pollInterval);
+      try { const a=new AudioContext(); const o=a.createOscillator(); o.frequency.value=800; o.connect(a.destination); o.start(); setTimeout(()=>o.stop(),200); } catch(e){}
+    } else if(d.status==='error') {
+      statusText.textContent='Error: '+d.message; clearInterval(pollInterval);
+    } else {
+      progressFill.style.width = d.percent+'%';
+      statusText.textContent = `${d.percent||0}% · ${d.speed||0} MB/s · ETA ${d.eta||'...'}`;
+      if(d.queue_items) {
+        const qa = document.getElementById('queueArea');
+        qa.classList.remove('hidden');
+        qa.innerHTML = d.queue_items.map((it,i)=>`<div class="flex-row" style="align-items:center;gap:8px;"><span>${it.url.substring(0,40)}</span><div style="flex:1;height:4px;background:#333;"><div style="width:${it.percent||0}%;height:100%;background:var(--accent);"></div></div></div>`).join('');
+      }
+      if(d.speed_history && d.speed_history.length>1) {
+        speedCanvas.classList.remove('hidden');
+        drawSpeedGraph(d.speed_history);
+      }
+    }
+  }, 1000);
+}
+
+function drawSpeedGraph(speeds) {
+  const w = speedCanvas.width = speedCanvas.clientWidth;
+  const h = speedCanvas.height = speedCanvas.clientHeight;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='var(--accent)'; ctx.lineWidth=2; ctx.beginPath();
+  const max = Math.max(...speeds, 0.1);
+  speeds.forEach((v,i)=>{
+    const x = (i/(speeds.length-1))*w;
+    const y = h - (v/max)*(h-4)-2;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+
+document.getElementById('copyLinkBtn').addEventListener('click', ()=> navigator.clipboard.writeText(fileLink.href).then(()=>alert('Link copied!')));
+document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  const rows = [['Title','Date','Type','URL']];
+  history.forEach(h=>rows.push([h.title,h.date,h.type,h.url]));
+  const csv = rows.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'download_history.csv';
+  a.click();
+});
+document.addEventListener('keydown', e=>{
+  if(e.ctrlKey && e.key==='Enter') {
+    e.preventDefault();
+    if(currentTab==='video') document.getElementById('downloadVideoBtn').click();
+    else if(currentTab==='audio') document.getElementById('downloadMusicBtn').click();
+  }
+});
+
+// ---------- CONVERTER LOGIC ----------
+const localFileInput = document.getElementById('localFileInput');
+const selectFileBtn = document.getElementById('selectFileBtn');
+const localDropZone = document.getElementById('localDropZone');
+const localFileInfo = document.getElementById('localFileInfo');
+const localFileName = document.getElementById('localFileName');
+const localFileFormat = document.getElementById('localFileFormat');
+const localFileDuration = document.getElementById('localFileDuration');
+const localTargetFormat = document.getElementById('localTargetFormat');
+const convertLocalBtn = document.getElementById('convertLocalBtn');
+const localProgressArea = document.getElementById('localProgressArea');
+const localProgressFill = document.getElementById('localProgressFill');
+const localStatusText = document.getElementById('localStatusText');
+const localDownloadLink = document.getElementById('localDownloadLink');
+
+selectFileBtn.addEventListener('click', ()=> localFileInput.click());
+localFileInput.addEventListener('change', handleLocalFile);
+localDropZone.addEventListener('dragover', e=>{ e.preventDefault(); localDropZone.classList.add('drag-over'); });
+localDropZone.addEventListener('dragleave', ()=> localDropZone.classList.remove('drag-over'));
+localDropZone.addEventListener('drop', e=>{
+  e.preventDefault();
+  localDropZone.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if(files.length) handleFileObject(files[0]);
+});
+
+function handleLocalFile(e) {
+  const file = e.target.files[0];
+  if(file) handleFileObject(file);
+}
+
+async function handleFileObject(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch('/api/local/info', { method:'POST', body: formData });
+    const data = await res.json();
+    if(data.error) { alert(data.error); return; }
+    localFileInfo.classList.remove('hidden');
+    localFileName.textContent = 'File: ' + data.filename;
+    localFileFormat.textContent = 'Format: ' + data.format + (data.video_codec ? ' Video:'+data.video_codec : '') + (data.audio_codec ? ' Audio:'+data.audio_codec : '');
+    localFileDuration.textContent = 'Duration: ' + (data.duration ? data.duration.toFixed(1)+'s' : 'unknown');
+    localFileInfo.dataset.convId = data.conv_id;
+  } catch(e) { alert('Error reading file'); }
+}
+
+convertLocalBtn.addEventListener('click', async ()=>{
+  const convId = localFileInfo.dataset.convId;
+  if(!convId) return;
+  const target = localTargetFormat.value;
+  localProgressArea.classList.remove('hidden');
+  convertLocalBtn.disabled = true;
+  try {
+    const res = await fetch('/api/local/convert', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ conv_id: convId, target_format: target })
+    });
+    const data = await res.json();
+    if(data.error) { alert(data.error); convertLocalBtn.disabled = false; return; }
+    localProgressFill.style.width = '100%';
+    localStatusText.textContent = 'Conversion done!';
+    localDownloadLink.href = `/file/local/${data.download_id}/${data.filename}`;
+    localDownloadLink.textContent = '⬇️ ' + data.filename;
+    localDownloadLink.classList.remove('hidden');
+    convertLocalBtn.disabled = false;
+  } catch(e) { alert('Conversion failed'); convertLocalBtn.disabled = false; }
+});
+
+// ---------- SPOTIFY DOWNLOAD ----------
+document.getElementById('spotifyDownloadBtn').addEventListener('click', async () => {
+  const url = document.getElementById('spotifyUrl').value.trim();
+  if (!url.includes('spotify.com')) {
+    alert('Please enter a valid Spotify URL');
+    return;
+  }
+  progressArea.classList.remove('hidden');
+  progressFill.style.width = '0%';
+  statusText.textContent = 'Starting Spotify download...';
+  fileLink.classList.add('hidden');
+  copyLinkBtn.classList.add('hidden');
+  playBtn.classList.add('hidden');
+  document.getElementById('subtitleLinks').classList.add('hidden');
+  speedCanvas.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/spotify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, audio_format: 'mp3' })
+    });
+    const data = await res.json();
+    if (data.error) {
+      statusText.textContent = 'Error: ' + data.error;
+      return;
+    }
+    currentDownloadId = data.download_id;
+    startPolling(currentDownloadId);
+  } catch (e) {
+    statusText.textContent = 'Network error';
+  }
 });
 </script>
 </body>
