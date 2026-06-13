@@ -1,7 +1,17 @@
-import os, json, uuid, threading, subprocess, tempfile
+import os, json, uuid, threading, subprocess, tempfile, logging, urllib.request, re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
 import yt_dlp
+
+# ---------- DRM logger (hides Spotify false alarms) ----------
+class NoDRMLogger(logging.Logger):
+    def handle(self, record):
+        if "DRM" in record.getMessage():
+            return
+        super().handle(record)
+
+yt_dlp_logger = NoDRMLogger("yt-dlp")
+yt_dlp_logger.addHandler(logging.StreamHandler())
 
 app = Flask(__name__)
 downloads = {}
@@ -45,7 +55,8 @@ def download_worker(download_id, url, options):
             'ignoreerrors': True,
             'nocheckcertificate': True,
             'noplaylist': not options.get('playlist', False),
-            'overwrites': True,                # ← prevents stuck downloads
+            'overwrites': True,                # prevents stuck downloads
+            'logger': yt_dlp_logger,           # silences DRM warnings
         }
 
         if options.get('speed_limit'):
@@ -345,7 +356,7 @@ def get_file(download_id, filename):
     directory = os.path.join('downloads', download_id)
     return send_from_directory(directory, filename, as_attachment=True)
 
-# ---------- LOCAL CONVERTER (same as before) ----------
+# ---------- LOCAL CONVERTER ----------
 @app.route('/api/local/info', methods=['POST'])
 def local_file_info():
     if 'file' not in request.files:
@@ -419,6 +430,28 @@ def get_local_file(download_id, filename):
     return send_file(info['filepath'], as_attachment=True, download_name=filename)
 
 # ================== SMART DOWNLOAD (Spotify & YT Music) ==================
+def scrape_spotify_metadata(url):
+    """Extract title and artist from Spotify page without cookies."""
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+        # Look for <title>...</title>
+        match = re.search(r'<title>(.*?)</title>', html)
+        if match:
+            title_text = match.group(1)
+            # Typical format: "Song Name - Artist Name | Spotify"
+            # Remove trailing " | Spotify" or "| Spotify"
+            title_text = re.sub(r'\s*\|\s*Spotify\s*$', '', title_text).strip()
+            if ' - ' in title_text:
+                parts = title_text.split(' - ', 1)
+                song = parts[0].strip()
+                artist = parts[1].strip()
+                return song, artist
+    except Exception:
+        pass
+    return '', ''
+
 @app.route('/api/extract_metadata', methods=['POST'])
 def extract_metadata():
     data = request.json
@@ -427,6 +460,11 @@ def extract_metadata():
         return jsonify({'error': 'URL missing'}), 400
 
     is_spotify = 'spotify.com' in url
+    title = ''
+    artist = ''
+    thumbnail = ''
+
+    # Try yt-dlp first (may work with cookies if present)
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -434,11 +472,8 @@ def extract_metadata():
         'extract_flat': False,
         'ignoreerrors': True,
         'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
+        'logger': yt_dlp_logger,
     }
-
-    title = ''
-    artist = ''
-    thumbnail = ''
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -468,6 +503,10 @@ def extract_metadata():
     except Exception:
         pass
 
+    # If still empty for Spotify, scrape the page
+    if is_spotify and not title:
+        title, artist = scrape_spotify_metadata(url)
+
     return jsonify({
         'title': title,
         'artist': artist,
@@ -489,7 +528,11 @@ def smart_download():
         return jsonify({'error': 'Title and artist are required'}), 400
 
     if is_spotify:
-        search_query = f"{artist} - {title} official audio"
+        queries = [
+            f"{artist} - {title} Official Music Video",
+            f"{artist} - {title} Official Audio",
+            f"{title} {artist} official song"
+        ]
         search_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -499,15 +542,23 @@ def smart_download():
             'extract_flat': False,
             'noplaylist': True,
             'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
+            'logger': yt_dlp_logger,
         }
-        try:
-            with yt_dlp.YoutubeDL(search_opts) as ydl_search:
-                search_info = ydl_search.extract_info(f"ytsearch1:{search_query}", download=False)
-            if not search_info or not search_info.get('entries'):
-                return jsonify({'error': 'No matching YouTube video found'}), 404
-            video_url = search_info['entries'][0]['webpage_url']
-        except Exception as e:
-            return jsonify({'error': f'YouTube search failed: {str(e)}'}), 500
+
+        video_url = None
+        for query in queries:
+            try:
+                with yt_dlp.YoutubeDL(search_opts) as ydl_search:
+                    info = ydl_search.extract_info(f"ytsearch1:{query}", download=False)
+                if info and info.get('entries'):
+                    best = max(info['entries'], key=lambda e: e.get('view_count', 0))
+                    video_url = best['webpage_url']
+                    break
+            except:
+                continue
+
+        if not video_url:
+            return jsonify({'error': 'No matching official video found. Paste the YouTube URL directly in the Smart Download field.'}), 404
     else:
         video_url = url
 
@@ -524,8 +575,8 @@ def smart_download():
         'batch_urls': None,
         'custom_filename': None,
         'scheduled_time': None,
-        'custom_title': title,        # ← passes edited title
-        'custom_artist': artist,      # ← passes edited artist
+        'custom_title': title,
+        'custom_artist': artist,
     }
     thread = threading.Thread(target=download_worker, args=(download_id, video_url, options))
     thread.daemon = True
