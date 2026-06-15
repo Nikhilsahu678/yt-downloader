@@ -41,22 +41,44 @@ def progress_hook_factory(download_id):
         downloads[download_id] = status
     return progress_hook
 
-# ---------- Download Worker ----------
 def download_worker(download_id, url, options):
     status = downloads.setdefault(download_id, {})
     status['status'] = 'starting'
     status['speed_history'] = []
     try:
+        # ------------------- PLAYLIST / ALBUM DETECTION -------------------
+        is_playlist = False
+        playlist_title = None
+        try:
+            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True, 'no_warnings': True}) as ydl_info:
+                info = ydl_info.extract_info(url, download=False)
+                if info.get('_type') == 'playlist' or info.get('playlist_count') or info.get('entries'):
+                    is_playlist = True
+                    playlist_title = info.get('playlist_title') or info.get('title') or info.get('uploader') or 'Unknown_Album'
+        except Exception as e:
+            print(f"Playlist detection error: {e}")
+            is_playlist = False
+
+        if is_playlist and playlist_title:
+            import re
+            playlist_title = re.sub(r'[<>:"/\\|?*]', '_', playlist_title).strip()
+            if not playlist_title:
+                playlist_title = "Unknown_Album"
+            output_template = f'downloads/{playlist_title}/%(title)s.%(ext)s'
+            os.makedirs(f'downloads/{playlist_title}', exist_ok=True)
+        else:
+            output_template = f'downloads/{download_id}/%(title)s.%(ext)s'
+
         ydl_opts = {
-            'outtmpl': f'downloads/{download_id}/%(title)s.%(ext)s',
+            'outtmpl': output_template,
             'progress_hooks': [progress_hook_factory(download_id)],
             'quiet': True,
             'no_warnings': True,
             'ignoreerrors': True,
             'nocheckcertificate': True,
             'noplaylist': not options.get('playlist', False),
-            'overwrites': True,                # prevents stuck downloads
-            'logger': yt_dlp_logger,           # silences DRM warnings
+            'overwrites': True,
+            'logger': yt_dlp_logger,
         }
 
         if options.get('speed_limit'):
@@ -135,8 +157,13 @@ def download_worker(download_id, url, options):
             selected = [all_entries[i] for i in sel if i < len(all_entries)]
             s_opts = ydl_opts.copy()
             s_opts['noplaylist'] = True
-            s_opts['outtmpl'] = f'downloads/{download_id}/%(title)s/%(title)s.%(ext)s'
-            os.makedirs(f'downloads/{download_id}', exist_ok=True)
+            if is_playlist and playlist_title:
+                s_output_template = f'downloads/{playlist_title}/%(title)s.%(ext)s'
+                os.makedirs(f'downloads/{playlist_title}', exist_ok=True)
+            else:
+                s_output_template = f'downloads/{download_id}/%(title)s.%(ext)s'
+            s_opts['outtmpl'] = s_output_template
+            os.makedirs(os.path.dirname(s_output_template), exist_ok=True)
             total = len(selected)
             status['video_count'] = total
             for idx, entry in enumerate(selected):
@@ -147,10 +174,11 @@ def download_worker(download_id, url, options):
                 status['percent'] = round((idx + 1) / total * 100, 1)
             status['filename'] = f'{total} videos'
             status['subtitles'] = []
-            for root, dirs, files in os.walk(f'downloads/{download_id}'):
+            search_root = f'downloads/{playlist_title}' if (is_playlist and playlist_title) else f'downloads/{download_id}'
+            for root_dir, dirs, files in os.walk(search_root):
                 for f in files:
                     if f.endswith(('.srt', '.vtt')):
-                        rel = os.path.relpath(os.path.join(root, f), f'downloads/{download_id}')
+                        rel = os.path.relpath(os.path.join(root_dir, f), search_root)
                         status['subtitles'].append(rel)
             status['status'] = 'done'
             return
@@ -179,8 +207,16 @@ def download_worker(download_id, url, options):
         # ---------- single / full playlist ----------
         custom_name = options.get('custom_filename')
         if custom_name:
-            ydl_opts['outtmpl'] = f'downloads/{download_id}/{custom_name}.%(ext)s'
-        os.makedirs(f'downloads/{download_id}', exist_ok=True)
+            if is_playlist and playlist_title:
+                ydl_opts['outtmpl'] = f'downloads/{playlist_title}/{custom_name}.%(ext)s'
+            else:
+                ydl_opts['outtmpl'] = f'downloads/{download_id}/{custom_name}.%(ext)s'
+        else:
+            ydl_opts['outtmpl'] = output_template
+
+        target_dir = os.path.dirname(ydl_opts['outtmpl'])
+        os.makedirs(target_dir, exist_ok=True)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if not info:
@@ -210,18 +246,18 @@ def download_worker(download_id, url, options):
         # conversion
         convert_to = options.get('convert_to')
         if convert_to:
-            filepath = os.path.join(f'downloads/{download_id}', status['filename'])
+            filepath = os.path.join(target_dir, status['filename'])
             new_name = os.path.splitext(status['filename'])[0] + '.' + convert_to
-            new_path = os.path.join(f'downloads/{download_id}', new_name)
+            new_path = os.path.join(target_dir, new_name)
             subprocess.run(['ffmpeg', '-i', filepath, new_path], check=True)
             os.remove(filepath)
             status['filename'] = new_name
 
-        # ========== CUSTOM METADATA (for Smart Download) ==========
+        # custom metadata
         custom_title = options.get('custom_title')
         custom_artist = options.get('custom_artist')
         if custom_title or custom_artist:
-            filepath = os.path.join(f'downloads/{download_id}', status['filename'])
+            filepath = os.path.join(target_dir, status['filename'])
             tmp_file = filepath + '.tmp'
             cmd = ['ffmpeg', '-y', '-i', filepath]
             if custom_title:
@@ -233,13 +269,13 @@ def download_worker(download_id, url, options):
                 subprocess.run(cmd, check=True)
                 os.replace(tmp_file, filepath)
             except subprocess.CalledProcessError:
-                pass   # keep original metadata if ffmpeg fails
+                pass
 
         status['subtitles'] = []
-        for root, dirs, files in os.walk(f'downloads/{download_id}'):
+        for root_dir, dirs, files in os.walk(target_dir):
             for f in files:
                 if f.endswith(('.srt', '.vtt')):
-                    rel = os.path.relpath(os.path.join(root, f), f'downloads/{download_id}')
+                    rel = os.path.relpath(os.path.join(root_dir, f), target_dir)
                     status['subtitles'].append(rel)
 
         status['status'] = 'done'
